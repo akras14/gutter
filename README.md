@@ -24,8 +24,9 @@ See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, l
 | `Sources/Shims.swift` | Stub types the vendored wrapper `as?`-casts to (no-op in this app) |
 | `Sources/Compat.swift` | Shims for Swift-overlay APIs missing from the CommandLineTools toolchain |
 | `Vendor/` | Swift wrapper copied from the ghostty checkout by `vendor.sh` (SurfaceView with input/IME, config, app runtime) |
+| `deps/` | Self-contained build inputs: stripped static `libghostty.a`, C headers/modulemap, resources (themes, terminfo) - committed, so no ghostty checkout is needed to build |
 | `vendor.sh` | Re-copies + patches the wrapper (patches live here, reproducible) |
-| `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` |
+| `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` (bundles themes + shell integration + terminfo) |
 | `Info.plist` | Bundle metadata (bundle id, min macOS 13) |
 
 ## Requirements
@@ -33,10 +34,10 @@ See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, l
 - macOS 13+ (built and tested on 26.x, arm64)
 - Xcode installed at `/Applications/Xcode.app` with the **Metal Toolchain**
   component (Xcode Settings -> Components)
-- The ghostty checkout at `~/projects/ak/ghostty` (tag `v1.3.1`, with a completed
-  `zig build` - see "Rebuilding libghostty")
-- Zig 0.15.2 at `~/projects/ak/.tooling/zig-aarch64-macos-0.15.2/` (only for
-  rebuilding libghostty)
+
+That's it - `deps/` carries the vendored libghostty, headers and resources, so
+cloning the repo is enough to build. A ghostty checkout + Zig 0.15.2 are only
+needed when **updating** ghostty (see "Updating ghostty").
 
 ## Build & run
 
@@ -47,10 +48,11 @@ cd ~/projects/ak/gutter
 open dist/Gutter.app
 ```
 
-`build.sh` compiles a small ObjC helper, runs `swiftc` over `Sources/` +
-`Vendor/` (the C API is bridged via ghostty's `module.modulemap`), and links the
-static `libghostty` archives from the ghostty zig-cache. Always run the app from
-the bundled `.app` - the bare binary crashes because ghostty's logger force-unwraps
+`build.sh` prefers the committed `deps/` (stripped static `libghostty` +
+headers + resources). Setting `GHOSTTY=<checkout>` overrides it and links the
+checkout's GhosttyKit.xcframework instead (with the archive-repair workaround
+below if needed). Always run the app from the bundled `.app` - the bare binary
+crashes because ghostty's logger force-unwraps
 `Bundle.main.bundleIdentifier`.
 
 ## Developing
@@ -75,12 +77,14 @@ the bundled `.app` - the bare binary crashes because ghostty's logger force-unwr
 - Don't override `command` in config overrides: repeated `command` keys append
   to the default argv instead of replacing it.
 
-## Rebuilding libghostty (rare)
+## Updating ghostty (rare)
 
-Only needed when the ghostty core changes:
+Only needed when you want a newer ghostty core. Requires a ghostty checkout
+and Zig 0.15.2:
 
 ```sh
 cd ~/projects/ak/ghostty
+git fetch && git checkout <new-tag>
 PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" \
   zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native
 ```
@@ -88,9 +92,19 @@ PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" \
 The `shim-bin` xcrun wrapper points zig's SDK detection at a shadow SDK
 (`~/projects/ak/.tooling/MacOSX26.5-arm64.sdk`) whose tbds declare
 `arm64-macos` - macOS 26 SDKs dropped it and zig 0.15.2's linker requires it.
-After rebuilding, run `./build.sh` once: it detects whether Xcode 26.x's
-`libtool` dropped the unaligned core member from the fat archive and re-pads the
-zig-cache archives with Apple's `ar` before linking.
+Then refresh the vendored inputs in this repo:
+
+1. `./vendor.sh` - refresh the Swift wrapper (patch assertions fail loudly on
+   upstream drift)
+2. Refresh `deps/`:
+   - copy `include/` and `zig-out/share/{ghostty,terminfo}` from the checkout
+   - rebuild the static lib: extract every `lib*.a` from the checkout's
+     `.zig-cache/o` (zig's archives have members Xcode's libtool drops for
+     missing 8-byte padding - rebuild each with Apple's `ar` first), run
+     `strip -S` on the objects (drops debug info: 135M -> 23M), then
+     `ar rcs deps/lib/libghostty.a *.o`
+3. `./build.sh` with `GHOSTTY=<checkout>` unset falls back to `deps/` - verify,
+   commit `Vendor/` + `deps/`.
 
 ## Sharing the binary
 

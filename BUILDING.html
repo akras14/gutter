@@ -34,8 +34,6 @@ font, working directory and keybinds.</p>
 <h2>Prerequisites</h2>
 <table>
   <tr><th>Thing</th><th>Where</th><th>Notes</th></tr>
-  <tr><td>ghostty checkout</td><td><code>~/projects/ak/ghostty</code></td><td>v1.3.1 tag, provides the Swift wrapper + built libghostty</td></tr>
-  <tr><td>Zig 0.15.2</td><td><code>~/projects/ak/.tooling/zig-aarch64-macos-0.15.2/</code></td><td>only needed to rebuild libghostty itself</td></tr>
   <tr><td>Xcode</td><td><code>/Applications/Xcode.app</code></td><td>Metal Toolchain component installed (Settings &rarr; Components)</td></tr>
   <tr><td>Your Ghostty config</td><td><code>~/Library/Application Support/com.mitchellh.ghostty/config.ghostty</code></td><td>loaded automatically; falls back to default XDG paths</td></tr>
 </table>
@@ -48,14 +46,17 @@ open dist/Gutter.app</code></pre>
 
 <p><code>build.sh</code> does three things: compiles a tiny ObjC helper, compiles all Swift sources
 with <code>swiftc</code> (no Xcode project - the C API is bridged via ghostty's <code>module.modulemap</code>),
-and links against the static <code>libghostty</code> archives from the ghostty zig-cache.</p>
+and links against the vendored static <code>deps/lib/libghostty.a</code>. Everything ghostty-related
+is committed in <code>deps/</code> (stripped lib, headers, resources) - no ghostty checkout needed to build.
+Setting <code>GHOSTTY=&lt;checkout&gt;</code> links a checkout's GhosttyKit.xcframework instead.</p>
 
 <h2>Layout</h2>
 <table>
   <tr><th>Path</th><th>Purpose</th></tr>
   <tr><td><code>Sources/</code></td><td>The app: window shell, sidebar, session manager, menu wiring (~700 lines)</td></tr>
   <tr><td><code>Vendor/</code></td><td>56 Swift files copied from the ghostty repo by <code>vendor.sh</code> (SurfaceView, config, app runtime)</td></tr>
-  <tr><td><code>vendor.sh</code></td><td>Re-copies + patches the wrapper. Re-run after changing the ghostty checkout</td></tr>
+  <tr><td><code>deps/</code></td><td>Vendored build inputs: stripped <code>libghostty.a</code>, C headers/modulemap, themes + terminfo</td></tr>
+  <tr><td><code>vendor.sh</code></td><td>Re-copies + patches the wrapper. Re-run when syncing from a ghostty checkout (only needed when updating ghostty)</td></tr>
   <tr><td><code>Sources/Compat.swift</code></td><td>Shims for APIs missing from the CommandLineTools Swift overlays. Delete if building with Xcode's toolchain</td></tr>
   <tr><td><code>Sources/Shims.swift</code></td><td>Stub types the wrapper's <code>as?</code> casts expect (they no-op in this app)</td></tr>
 </table>
@@ -74,7 +75,7 @@ and links against the static <code>libghostty</code> archives from the ghostty z
   <li><strong>Archive padding:</strong> Xcode 26.6's <code>libtool</code> silently drops zig-built archive members that aren't 8-byte aligned. <code>build.sh</code> detects the broken fat archive and re-pads each zig-cache archive with Apple's <code>ar</code> before linking.</li>
   <li><strong>Resources:</strong> themes and shell integration are bundled at <code>Contents/Resources/ghostty/</code> (found via the <code>GHOSTTY_RESOURCES_DIR</code> env var, set in <code>main.swift</code>), and terminfo is bundled at <code>Contents/Resources/terminfo/</code> - spawned shells get <code>TERM=xterm-ghostty</code> plus a <code>TERMINFO</code> pointing there.</li>
   <li><strong>Keybind overrides:</strong> <code>cmd+t=new_tab</code> and <code>cmd+9=goto_tab:9</code> are injected via a temp config file (see <code>main.swift</code>). Don't override <code>command</code> in config this way - repeated <code>command</code> keys append instead of replacing.</li>
-  <li><strong>Rebuilding libghostty</strong> (rare): <code>cd ~/projects/ak/ghostty &amp;&amp; PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native</code>. The shim points zig's SDK detection at a shadow SDK whose tbds declare <code>arm64-macos</code> (macOS 26 SDKs dropped it; zig 0.15.2 needs it).</li>
+  <li><strong>Updating ghostty</strong> (rare): needs a ghostty checkout + Zig 0.15.2. Build the core (<code>PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native</code> - the shim points zig's SDK detection at a shadow SDK whose tbds declare <code>arm64-macos</code>), then refresh <code>Vendor/</code> and <code>deps/</code> - see README "Updating ghostty".</li>
 </ul>
 
 <p class="note">Run the app only as the bundled <code>.app</code> - the bare binary crashes because ghostty's
