@@ -14,7 +14,7 @@ keybinds are loaded from
 `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`
 (falls back to the standard XDG locations).
 
-See `README.html` for a rendered version of this document.
+See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, layout, gotchas.
 
 ## Layout
 
