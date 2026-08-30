@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GhosttyTabs - Building</title>
+<style>
+  body { font: 15px/1.6 -apple-system, "Helvetica Neue", sans-serif; max-width: 760px;
+         margin: 2rem auto; padding: 0 1.25rem; color: #1d1d1f; background: #fafafa; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.1rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; border-bottom: 1px solid #e2e2e2; padding-bottom: 0.25rem; }
+  .sub { color: #6e6e73; margin-top: 0; }
+  code, pre { font: 12.5px/1.5 "SF Mono", Menlo, monospace; }
+  code { background: #ececf0; padding: 0.1em 0.35em; border-radius: 4px; }
+  pre { background: #1d1d1f; color: #e8e8ed; padding: 0.85rem 1rem; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; color: inherit; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e2e2; vertical-align: top; }
+  th { color: #6e6e73; font-weight: 600; }
+  ul { padding-left: 1.2rem; }
+  li { margin: 0.3rem 0; }
+  .note { background: #fff8e6; border: 1px solid #f0dfa8; border-radius: 8px; padding: 0.7rem 1rem; font-size: 0.92em; }
+</style>
+</head>
+<body>
+
+<h1>GhosttyTabs</h1>
+<p class="sub">A small macOS terminal app with a vertical tab sidebar, embedding <strong>libghostty</strong> (ghostty v1.3.1).</p>
+
+<p>One window, one sidebar: every session is a full libghostty terminal surface (Metal rendering, PTY,
+input/IME come from ghostty's own Swift wrapper). Your existing Ghostty config drives the theme,
+font, working directory and keybinds.</p>
+
+<h2>Prerequisites</h2>
+<table>
+  <tr><th>Thing</th><th>Where</th><th>Notes</th></tr>
+  <tr><td>ghostty checkout</td><td><code>~/projects/ak/ghostty</code></td><td>v1.3.1 tag, provides the Swift wrapper + built libghostty</td></tr>
+  <tr><td>Zig 0.15.2</td><td><code>~/projects/ak/.tooling/zig-aarch64-macos-0.15.2/</code></td><td>only needed to rebuild libghostty itself</td></tr>
+  <tr><td>Xcode</td><td><code>/Applications/Xcode.app</code></td><td>Metal Toolchain component installed (Settings &rarr; Components)</td></tr>
+  <tr><td>Your Ghostty config</td><td><code>~/Library/Application Support/com.mitchellh.ghostty/config.ghostty</code></td><td>loaded automatically; falls back to default XDG paths</td></tr>
+</table>
+
+<h2>Build &amp; run</h2>
+<pre><code>cd ~/projects/ak/GhosttyTabs
+./build.sh      # compiles app + vendored wrapper, links libghostty
+./make-app.sh   # assembles dist/GhosttyTabs.app (bundles themes + shell integration + terminfo)
+open dist/GhosttyTabs.app</code></pre>
+
+<p><code>build.sh</code> does three things: compiles a tiny ObjC helper, compiles all Swift sources
+with <code>swiftc</code> (no Xcode project - the C API is bridged via ghostty's <code>module.modulemap</code>),
+and links against the static <code>libghostty</code> archives from the ghostty zig-cache.</p>
+
+<h2>Layout</h2>
+<table>
+  <tr><th>Path</th><th>Purpose</th></tr>
+  <tr><td><code>Sources/</code></td><td>The app: window shell, sidebar, session manager, menu wiring (~700 lines)</td></tr>
+  <tr><td><code>Vendor/</code></td><td>56 Swift files copied from the ghostty repo by <code>vendor.sh</code> (SurfaceView, config, app runtime)</td></tr>
+  <tr><td><code>vendor.sh</code></td><td>Re-copies + patches the wrapper. Re-run after changing the ghostty checkout</td></tr>
+  <tr><td><code>Sources/Compat.swift</code></td><td>Shims for APIs missing from the CommandLineTools Swift overlays. Delete if building with Xcode's toolchain</td></tr>
+  <tr><td><code>Sources/Shims.swift</code></td><td>Stub types the wrapper's <code>as?</code> casts expect (they no-op in this app)</td></tr>
+</table>
+
+<h2>Keybinds</h2>
+<table>
+  <tr><th>Keys</th><th>Action</th></tr>
+  <tr><td><code>cmd-t</code> / <code>cmd-w</code></td><td>New tab / close tab (ghostty core keybinds &rarr; notifications &rarr; sidebar)</td></tr>
+  <tr><td><code>cmd-1..9</code></td><td>Select tab N</td></tr>
+  <tr><td><code>ctrl-tab</code> / <code>ctrl-shift-tab</code></td><td>Next / previous tab</td></tr>
+  <tr><td><code>&#8963;&#8984;S</code> or toolbar button</td><td>Toggle sidebar</td></tr>
+</table>
+
+<h2>Gotchas worth knowing</h2>
+<ul>
+  <li><strong>Archive padding:</strong> Xcode 26.6's <code>libtool</code> silently drops zig-built archive members that aren't 8-byte aligned. <code>build.sh</code> detects the broken fat archive and re-pads each zig-cache archive with Apple's <code>ar</code> before linking.</li>
+  <li><strong>Resources:</strong> themes and shell integration are bundled at <code>Contents/Resources/ghostty/</code> (found via the <code>GHOSTTY_RESOURCES_DIR</code> env var, set in <code>main.swift</code>), and terminfo is bundled at <code>Contents/Resources/terminfo/</code> - spawned shells get <code>TERM=xterm-ghostty</code> plus a <code>TERMINFO</code> pointing there.</li>
+  <li><strong>Keybind overrides:</strong> <code>cmd+t=new_tab</code> and <code>cmd+9=goto_tab:9</code> are injected via a temp config file (see <code>main.swift</code>). Don't override <code>command</code> in config this way - repeated <code>command</code> keys append instead of replacing.</li>
+  <li><strong>Rebuilding libghostty</strong> (rare): <code>cd ~/projects/ak/ghostty &amp;&amp; PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native</code>. The shim points zig's SDK detection at a shadow SDK whose tbds declare <code>arm64-macos</code> (macOS 26 SDKs dropped it; zig 0.15.2 needs it).</li>
+</ul>
+
+<p class="note">Run the app only as the bundled <code>.app</code> - the bare binary crashes because ghostty's
+logger force-unwraps <code>Bundle.main.bundleIdentifier</code>.</p>
+
+<h2>Postscript: the backspace bug</h2>
+
+<p>The one bug that survived the first pass: backspace wouldn't delete at the shell prompt. The core
+was parsing keys fine - it was packaging. The app bundled themes and shell-integration but not
+terminfo, so every spawned shell got <code>TERM=xterm-ghostty</code> with a <code>TERMINFO</code>
+pointing at a directory that didn't exist (and no system fallback). zsh's line editor silently lost
+its capabilities: it erased chars from its buffer but not from the screen. Fixed by bundling
+<code>zig-out/share/terminfo</code> like the official Ghostty.app does.</p>
+
+<p>Credit: after GLM-5.3-Flash got stuck on this one, switching to <strong>Kimi K3</strong>
+(moonshotai/kimi-k3) resolved it quickly - traced the failure to the core's TERMINFO wiring and
+fixed <code>make-app.sh</code>.</p>
+
+</body>
+</html>
