@@ -1,0 +1,11 @@
+# build outputs
+/bin/
+/dist/
+
+# vendored wrapper - regenerate with ./vendor.sh (patches live in the script)
+/Vendor/
+
+# local verification artifacts (logs, screenshots, probes)
+/verify/
+
+.DS_Store
