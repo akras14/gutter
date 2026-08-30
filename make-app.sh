@@ -20,5 +20,12 @@ if [ -d "$GHOSTTY/zig-out/share/ghostty" ]; then
     mkdir -p "$APP/Contents/Resources/ghostty"
     cp -R "$GHOSTTY/zig-out/share/ghostty/" "$APP/Contents/Resources/ghostty/"
 fi
+# The core sets TERMINFO=dirname(GHOSTTY_RESOURCES_DIR)/terminfo and
+# TERM=xterm-ghostty for every spawned shell; without the bundled entry
+# (and no system fallback) shells get a broken terminfo - e.g. zsh zle
+# can't erase chars on backspace.
+if [ -d "$GHOSTTY/zig-out/share/terminfo" ]; then
+    cp -R "$GHOSTTY/zig-out/share/terminfo" "$APP/Contents/Resources/terminfo"
+fi
 codesign --force --sign - "$APP"
 echo "built: $APP"

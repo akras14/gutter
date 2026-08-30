@@ -43,7 +43,7 @@ See `README.html` for a rendered version of this document.
 ```sh
 cd ~/projects/ak/GhosttyTabs
 ./build.sh      # compile app + vendored wrapper, link libghostty
-./make-app.sh   # assemble dist/GhosttyTabs.app (bundles themes + shell integration)
+./make-app.sh   # assemble dist/GhosttyTabs.app (bundles themes + shell integration + terminfo)
 open dist/GhosttyTabs.app
 ```
 
