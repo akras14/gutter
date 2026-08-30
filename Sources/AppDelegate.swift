@@ -10,10 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     let ghostty = Ghostty.App(configPath: FileManager.default.fileExists(atPath: AppDelegate.configPath) ? AppDelegate.configPath : nil)
 
     /// Referenced by vendored SurfaceView menu code.
-    static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "dev.akras.GhosttyTabs", category: "app")
+    static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "dev.akras.gutter", category: "app")
 
     // MARK: Members the vendored Ghostty sources call on NSApp.delegate.
-    // All are unreachable or intentionally inert in GhosttyTabs (no updates
+    // All are unreachable or intentionally inert in Gutter (no updates
     // checker, no quick terminal, no floating windows), but the symbols must
     // exist for the casts to compile.
     let undoManager: UndoManager? = nil
@@ -50,10 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = "GhosttyTabs"
+        window.title = "Gutter"
         window.toolbar = makeToolbar()
         window.toolbarStyle = .unified
-        window.setFrameAutosaveName("GhosttyTabs Main Window")
+        window.setFrameAutosaveName("Gutter Main Window")
 
         let split = MainSplitViewController(sessions: sessions)
         window.contentViewController = split
@@ -134,11 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About GhosttyTabs",
+        appMenu.addItem(withTitle: "About Gutter",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide GhosttyTabs", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Quit GhosttyTabs", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Hide Gutter", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Quit Gutter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 

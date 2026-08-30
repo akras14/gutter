@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GhosttyTabs - Building</title>
+<title>Gutter - Building</title>
 <style>
   body { font: 15px/1.6 -apple-system, "Helvetica Neue", sans-serif; max-width: 760px;
          margin: 2rem auto; padding: 0 1.25rem; color: #1d1d1f; background: #fafafa; }
@@ -24,7 +24,7 @@
 </head>
 <body>
 
-<h1>GhosttyTabs</h1>
+<h1>Gutter</h1>
 <p class="sub">A small macOS terminal app with a vertical tab sidebar, embedding <strong>libghostty</strong> (ghostty v1.3.1).</p>
 
 <p>One window, one sidebar: every session is a full libghostty terminal surface (Metal rendering, PTY,
@@ -41,10 +41,10 @@ font, working directory and keybinds.</p>
 </table>
 
 <h2>Build &amp; run</h2>
-<pre><code>cd ~/projects/ak/GhosttyTabs
+<pre><code>cd ~/projects/ak/gutter
 ./build.sh      # compiles app + vendored wrapper, links libghostty
-./make-app.sh   # assembles dist/GhosttyTabs.app (bundles themes + shell integration + terminfo)
-open dist/GhosttyTabs.app</code></pre>
+./make-app.sh   # assembles dist/Gutter.app (bundles themes + shell integration + terminfo)
+open dist/Gutter.app</code></pre>
 
 <p><code>build.sh</code> does three things: compiles a tiny ObjC helper, compiles all Swift sources
 with <code>swiftc</code> (no Xcode project - the C API is bridged via ghostty's <code>module.modulemap</code>),

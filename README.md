@@ -1,4 +1,4 @@
-# GhosttyTabs
+# Gutter
 
 A small native macOS terminal app with a vertical tab sidebar, embedding
 [libghostty](https://ghostty.org) (ghostty **v1.3.1**) as a static library.
@@ -25,7 +25,7 @@ See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, l
 | `Sources/Compat.swift` | Shims for Swift-overlay APIs missing from the CommandLineTools toolchain |
 | `Vendor/` | Swift wrapper copied from the ghostty checkout by `vendor.sh` (SurfaceView with input/IME, config, app runtime) |
 | `vendor.sh` | Re-copies + patches the wrapper (patches live here, reproducible) |
-| `build.sh` / `make-app.sh` | Build the binary / assemble `dist/GhosttyTabs.app` |
+| `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` |
 | `Info.plist` | Bundle metadata (bundle id, min macOS 13) |
 
 ## Requirements
@@ -41,10 +41,10 @@ See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, l
 ## Build & run
 
 ```sh
-cd ~/projects/ak/GhosttyTabs
+cd ~/projects/ak/gutter
 ./build.sh      # compile app + vendored wrapper, link libghostty
-./make-app.sh   # assemble dist/GhosttyTabs.app (bundles themes + shell integration + terminfo)
-open dist/GhosttyTabs.app
+./make-app.sh   # assemble dist/Gutter.app (bundles themes + shell integration + terminfo)
+open dist/Gutter.app
 ```
 
 `build.sh` compiles a small ObjC helper, runs `swiftc` over `Sources/` +
@@ -66,7 +66,7 @@ the bundled `.app` - the bare binary crashes because ghostty's logger force-unwr
   with occurrence counts - they fail loudly if upstream drifts, and then need a
   look.
 - **Runtime logs**: ghostty logs through os.Logger. Watch with
-  `/usr/bin/log stream --style compact --predicate 'process == "GhosttyTabs"'`
+  `/usr/bin/log stream --style compact --predicate 'process == "Gutter"'`
   (config errors, renderer health, spawn failures all show up there).
 - **Keybind overrides** (`cmd+t=new_tab`, `cmd+9=goto_tab:9`) are injected via a
   temp config file from `main.swift` through `Ghostty.Config.embedderConfigFile`.
@@ -94,11 +94,11 @@ zig-cache archives with Apple's `ar` before linking.
 
 ## Sharing the binary
 
-`dist/GhosttyTabs.app` is self-contained (static libghostty, themes, shell
+`dist/Gutter.app` is self-contained (static libghostty, themes, shell
 integration) - just zip it:
 
 ```sh
-cd ~/projects/ak/GhosttyTabs/dist && zip -r GhosttyTabs.zip GhosttyTabs.app
+cd ~/projects/ak/gutter/dist && zip -r Gutter.zip Gutter.app
 ```
 
 Recipients should know:
@@ -106,7 +106,7 @@ Recipients should know:
 - **arm64 (Apple Silicon) only**, macOS 13+.
 - The app is **ad-hoc signed** (no developer certificate). On another Mac,
   Gatekeeper will block the first launch: right-click -> Open, or clear the
-  quarantine flag with `xattr -cr GhosttyTabs.app`.
+  quarantine flag with `xattr -cr Gutter.app`.
 - It reads the recipient's own Ghostty config; without one it runs with
   ghostty's default theme.
 - The embedded libghostty is MIT-licensed (c) Mitchell Hashimoto /

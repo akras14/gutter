@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compiles GhosttyTabs (vendored Ghostty Swift wrapper + this app) into a
+# Compiles Gutter (vendored Ghostty Swift wrapper + this app) into a
 # binary linked against the static libghostty from the GhosttyKit xcframework.
 # Run make-app.sh to get a launchable .app (required: the wrapper's logger
 # force-unwraps Bundle.main.bundleIdentifier, so the bare binary will crash).
@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 # Link inputs: the combined archive OR, if Xcode 26.x libtool dropped its
 # unaligned members (zig-emitted members are unaligned), the core archive
 # plus every dep archive from the zig cache, passed individually to ld.
-GHOSTTY=${GHOSTTY:-/Users/alex.kras/projects/ak/ghostty}
+GHOSTTY=${GHOSTTY:-$HOME/projects/ak/ghostty}
 KIT="$GHOSTTY/macos/GhosttyKit.xcframework/macos-arm64"
 LIB="$KIT/libghostty.a"
 [ -f "$LIB" ] || LIB="$KIT/libghostty-fat.a"
@@ -32,7 +32,7 @@ if nm "$LIB" 2>/dev/null | grep -q ' T _ghostty_init'; then
 else
     CORE=$(find "$GHOSTTY/.zig-cache/o" -name 'libghostty.a' -size +8M | head -1)
     [ -f "$CORE" ] || { echo "error: core libghostty.a not found in zig-cache" >&2; exit 1; }
-    ZIGAR=${ZIGAR:-/Users/alex.kras/projects/ak/.tooling/zig-aarch64-macos-0.15.2/zig}
+    ZIGAR=${ZIGAR:-$HOME/projects/ak/.tooling/zig-aarch64-macos-0.15.2/zig}
     REPAIRED=bin/repaired
     mkdir -p "$REPAIRED"
     for a in $(find "$GHOSTTY/.zig-cache/o" -name 'lib*.a' ! -name 'libghostty-fat.a'); do
@@ -66,7 +66,7 @@ clang -c -fobjc-arc -ObjC \
 swiftc \
     -O \
     -enable-bare-slash-regex \
-    -module-name GhosttyTabs \
+    -module-name Gutter \
     -import-objc-header Vendor/Support/ObjCExceptionCatcher.h \
     Sources/*.swift \
     Vendor/Ghostty/*.swift \
@@ -82,6 +82,6 @@ swiftc \
     -framework CoreGraphics -framework CoreFoundation -framework Carbon -framework UserNotifications \
     -framework UniformTypeIdentifiers \
     -lc++ \
-    -o bin/GhosttyTabs
+    -o bin/Gutter
 
-echo "built: bin/GhosttyTabs (run make-app.sh to get a launchable .app)"
+echo "built: bin/Gutter (run make-app.sh to get a launchable .app)"
