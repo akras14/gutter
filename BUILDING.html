@@ -40,7 +40,7 @@ font, working directory and keybinds.</p>
 
 <h2>Build &amp; run</h2>
 <pre><code>cd ~/projects/ak/gutter
-./build.sh      # compiles app + vendored wrapper, links libghostty
+./build.sh      # compiles app + vendored wrapper, links vendored libghostty
 ./make-app.sh   # assembles dist/Gutter.app (bundles themes + shell integration + terminfo)
 open dist/Gutter.app</code></pre>
 
@@ -72,11 +72,27 @@ Setting <code>GHOSTTY=&lt;checkout&gt;</code> links a checkout's GhosttyKit.xcfr
 
 <h2>Gotchas worth knowing</h2>
 <ul>
-  <li><strong>Archive padding:</strong> Xcode 26.6's <code>libtool</code> silently drops zig-built archive members that aren't 8-byte aligned. <code>build.sh</code> detects the broken fat archive and re-pads each zig-cache archive with Apple's <code>ar</code> before linking.</li>
+  <li><strong>Archive padding:</strong> Xcode 26.6's <code>libtool</code> silently drops zig-built archive members that aren't 8-byte aligned. Only matters when linking a checkout via <code>GHOSTTY=</code>: <code>build.sh</code> detects the broken fat archive and re-pads each zig-cache archive with Apple's <code>ar</code> before linking. The committed <code>deps/lib/libghostty.a</code> was rebuilt with Apple's <code>ar</code>, so it's immune.</li>
   <li><strong>Resources:</strong> themes and shell integration are bundled at <code>Contents/Resources/ghostty/</code> (found via the <code>GHOSTTY_RESOURCES_DIR</code> env var, set in <code>main.swift</code>), and terminfo is bundled at <code>Contents/Resources/terminfo/</code> - spawned shells get <code>TERM=xterm-ghostty</code> plus a <code>TERMINFO</code> pointing there.</li>
   <li><strong>Keybind overrides:</strong> <code>cmd+t=new_tab</code> and <code>cmd+9=goto_tab:9</code> are injected via a temp config file (see <code>main.swift</code>). Don't override <code>command</code> in config this way - repeated <code>command</code> keys append instead of replacing.</li>
-  <li><strong>Updating ghostty</strong> (rare): needs a ghostty checkout + Zig 0.15.2. Build the core (<code>PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native</code> - the shim points zig's SDK detection at a shadow SDK whose tbds declare <code>arm64-macos</code>), then refresh <code>Vendor/</code> and <code>deps/</code> - see README "Updating ghostty".</li>
+  <li><strong>Updating ghostty</strong> (rare): needs a ghostty checkout + Zig 0.15.2 - build the core (<code>PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native</code> - the shim points zig's SDK detection at a shadow SDK whose tbds declare <code>arm64-macos</code>), then refresh <code>Vendor/</code> and <code>deps/</code> and commit both. See <a href="#updating">Updating ghostty</a> below.</li>
 </ul>
+
+<h2 id="updating">Updating ghostty (rare)</h2>
+<p>Everything ghostty ships in the repo is pinned to <code>deps/</code> + <code>Vendor/</code>, so a
+ghostty bump means regenerating both from a checkout and committing the result:</p>
+<ol>
+  <li><strong>Build the core</strong> in the ghostty checkout (command above - requires Zig 0.15.2).</li>
+  <li><strong>Refresh the wrapper:</strong> <code>./vendor.sh</code> - patch assertions fail loudly if upstream drifted.</li>
+  <li><strong>Refresh <code>deps/</code>:</strong>
+    <ul>
+      <li>copy the checkout's <code>include/</code> &rarr; <code>deps/include/</code></li>
+      <li>copy <code>zig-out/share/ghostty</code> and <code>zig-out/share/terminfo</code> &rarr; <code>deps/share/</code></li>
+      <li>rebuild the static lib: extract every <code>lib*.a</code> from the checkout's <code>.zig-cache/o</code>, re-archive each with Apple's <code>ar</code> (zig's archives have unaligned members Xcode's libtool drops), run <code>strip -S</code> on the objects (drops debug info: 135M &rarr; 23M), then <code>ar rcs deps/lib/libghostty.a *.o</code></li>
+    </ul>
+  </li>
+  <li><strong>Verify:</strong> link against the fresh checkout (<code>GHOSTTY=~/projects/ak/ghostty ./build.sh</code>), then unset <code>GHOSTTY</code> and confirm <code>./build.sh && ./make-app.sh</code> still works from <code>deps/</code> alone.</li>
+</ol>
 
 <p class="note">Run the app only as the bundled <code>.app</code> - the bare binary crashes because ghostty's
 logger force-unwraps <code>Bundle.main.bundleIdentifier</code>.</p>
@@ -88,7 +104,7 @@ was parsing keys fine - it was packaging. The app bundled themes and shell-integ
 terminfo, so every spawned shell got <code>TERM=xterm-ghostty</code> with a <code>TERMINFO</code>
 pointing at a directory that didn't exist (and no system fallback). zsh's line editor silently lost
 its capabilities: it erased chars from its buffer but not from the screen. Fixed by bundling
-<code>zig-out/share/terminfo</code> like the official Ghostty.app does.</p>
+terminfo (now vendored at <code>deps/share/terminfo</code>) like the official Ghostty.app does.</p>
 
 <p>Credit: after GLM-5.3-Flash got stuck on this one, switching to <strong>Kimi K3</strong>
 (moonshotai/kimi-k3) resolved it quickly - traced the failure to the core's TERMINFO wiring and
