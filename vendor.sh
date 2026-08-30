@@ -4,7 +4,7 @@
 # Source must be the same version as the libghostty.a being linked (v1.3.1).
 set -euo pipefail
 
-GHOSTTY=${1:-${GHOSTTY:-/Users/alex.kras/projects/ak/ghostty}}
+GHOSTTY=${1:-${GHOSTTY:-$HOME/projects/ak/ghostty}}
 SRC="$GHOSTTY/macos/Sources"
 DEST="$(cd "$(dirname "$0")" && pwd)/Vendor"
 
@@ -100,7 +100,7 @@ s = p.read_text()
 old = """                    // Similar to goto_split (see comment there) about our performability,
                     // we should make this more accurate later.
                     guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }"""
-new = """                    // GhosttyTabs patch: no native tabGroup; performable when the
+new = """                    // Gutter patch: no native tabGroup; performable when the
                     // embedder (NSApp.delegate) has more than one session.
                     guard (NSApp.delegate as? AppDelegate)?.sessions.sessions.count ?? 0 > 1 else { return false }"""
 assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
@@ -115,7 +115,7 @@ import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
 anchor = "    convenience init(at path: String? = nil, finalize: Bool = true) {"
-addition = """    /// GhosttyTabs: optional extra config file loaded after the user's config
+addition = """    /// Gutter: optional extra config file loaded after the user's config
     /// (used for embedder keybind overrides). Set before creating Ghostty.App.
     static var embedderConfigFile: String?
 
@@ -125,7 +125,7 @@ s = s.replace(anchor, addition + anchor)
 old = "            ghostty_config_load_recursive_files(cfg)\n#endif"
 new = """            ghostty_config_load_recursive_files(cfg)
 
-            // GhosttyTabs: append the embedder's extra config file.
+            // Gutter: append the embedder's extra config file.
             if let extra = Self.embedderConfigFile {
                 ghostty_config_load_file(cfg, extra)
             }
