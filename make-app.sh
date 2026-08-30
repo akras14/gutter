@@ -15,17 +15,20 @@ cp bin/Gutter "$APP/Contents/MacOS/Gutter"
 # Bundle ghostty's resources (themes, shell-integration, terminfo) like the
 # official app does (Resources/ghostty/...); libghostty resolves them via
 # GHOSTTY_RESOURCES_DIR. Shell integration drives tab titles.
+# Vendored deps/share is preferred; GHOSTTY (checkout) is the fallback.
 GHOSTTY=${GHOSTTY:-$HOME/projects/ak/ghostty}
-if [ -d "$GHOSTTY/zig-out/share/ghostty" ]; then
+RES_SRC=deps/share
+[ -d "$RES_SRC/ghostty" ] || RES_SRC="$GHOSTTY/zig-out/share"
+if [ -d "$RES_SRC/ghostty" ]; then
     mkdir -p "$APP/Contents/Resources/ghostty"
-    cp -R "$GHOSTTY/zig-out/share/ghostty/" "$APP/Contents/Resources/ghostty/"
+    cp -R "$RES_SRC/ghostty/" "$APP/Contents/Resources/ghostty/"
 fi
 # The core sets TERMINFO=dirname(GHOSTTY_RESOURCES_DIR)/terminfo and
 # TERM=xterm-ghostty for every spawned shell; without the bundled entry
 # (and no system fallback) shells get a broken terminfo - e.g. zsh zle
 # can't erase chars on backspace.
-if [ -d "$GHOSTTY/zig-out/share/terminfo" ]; then
-    cp -R "$GHOSTTY/zig-out/share/terminfo" "$APP/Contents/Resources/terminfo"
+if [ -d "$RES_SRC/terminfo" ]; then
+    cp -R "$RES_SRC/terminfo" "$APP/Contents/Resources/terminfo"
 fi
 codesign --force --sign - "$APP"
 echo "built: $APP"
