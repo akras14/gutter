@@ -71,60 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     private func buildMenus() {
-        let main = NSMenu()
-
-        let appItem = NSMenuItem()
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Gutter",
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Gutter", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Quit Gutter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        main.addItem(appItem)
-
-        let fileItem = NSMenuItem()
-        let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "New Tab",
-                         action: #selector(newTab(_:)), keyEquivalent: "t").target = self
-        fileMenu.addItem(withTitle: "Close Tab",
-                         action: #selector(closeTab(_:)), keyEquivalent: "w").target = self
-        fileItem.submenu = fileMenu
-        main.addItem(fileItem)
-
-        let viewItem = NSMenuItem()
-        let viewMenu = NSMenu(title: "View")
-        let sidebar = viewMenu.addItem(withTitle: "Toggle Sidebar",
-                                       action: #selector(toggleSidebar(_:)), keyEquivalent: "s")
-        sidebar.keyEquivalentModifierMask = [.command, .control]
-        sidebar.target = self
-        viewMenu.addItem(.separator())
-        for i in 1...9 {
-            let item = viewMenu.addItem(withTitle: "Select Tab \(i)",
-                                        action: #selector(selectTab(_:)), keyEquivalent: "\(i)")
-            item.tag = i - 1
-            item.target = self
-        }
-        viewMenu.addItem(.separator())
-        let next = viewMenu.addItem(withTitle: "Show Next Tab",
-                                    action: #selector(nextTab(_:)), keyEquivalent: "\t")
-        next.keyEquivalentModifierMask = [.control]
-        next.target = self
-        let prev = viewMenu.addItem(withTitle: "Show Previous Tab",
-                                    action: #selector(previousTab(_:)), keyEquivalent: "\t")
-        prev.keyEquivalentModifierMask = [.control, .shift]
-        prev.target = self
-        viewItem.submenu = viewMenu
-        main.addItem(viewItem)
-
-        let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-        windowItem.submenu = windowMenu
-        main.addItem(windowItem)
-
-        NSApp.mainMenu = main
+        NSApp.mainMenu = MainMenu.build(target: self)
     }
 
     // MARK: Menu actions (explicit targets - see buildMenus)
