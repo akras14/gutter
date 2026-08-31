@@ -241,13 +241,17 @@ may now be unused. If the compiler warns, change it to `guard ghostty.readiness 
 .ready, ghostty.app != nil else { ... }`. Keep the guard itself — it shows the config
 error alert.
 
-- [ ] `SessionManager` takes and stores `Ghostty.App`; `requestClose` deleted
-- [ ] `newSession()` takes no argument
-- [ ] `close(_:)` calls `ghostty.requestClose(surface:)`
-- [ ] `GhosttyBridge` no longer sets `requestClose`
-- [ ] `AppDelegate` constructs `SessionManager` in `applicationDidFinishLaunching`
-- [ ] `./build.sh` succeeds
-- [ ] Manual check: `cmd-t` opens a tab, `cmd-w` closes it (both still work)
+- [x] `SessionManager` takes and stores `Ghostty.App`; `requestClose` deleted
+- [x] `newSession()` takes no argument
+- [x] `close(_:)` calls `ghostty.requestClose(surface:)`
+- [x] `GhosttyBridge` no longer sets `requestClose`
+- [x] `AppDelegate` constructs `SessionManager` in `applicationDidFinishLaunching`
+- [x] `./build.sh` succeeds
+- [x] Manual check: `cmd-t` opens a tab, `cmd-w` closes it (both still work)
+
+> Deviation from plan: `sessions` had to stay `private(set) var`, not `private var` —
+> a "Gutter patch" in `Vendor/Ghostty/Ghostty.App.swift:1139` reads
+> `(NSApp.delegate as? AppDelegate)?.sessions.sessions.count`.
 
 ---
 
