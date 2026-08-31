@@ -440,9 +440,9 @@ deliberate: `ghosttyCloseSurface` calls `sessions.remove(session)` (the surface 
 already gone), `ghosttyCloseTab` calls `sessions.close(session)` (ask ghostty to close
 it first). Do not unify them.
 
-- [ ] `session(for:)` added
-- [ ] Both call sites use it
-- [ ] `./build.sh` succeeds
+- [x] `session(for:)` added
+- [x] Both call sites use it
+- [x] `./build.sh` succeeds
 
 ---
 

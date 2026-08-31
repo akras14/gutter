@@ -36,6 +36,10 @@ final class SessionManager {
         sessions.first { $0.view.id == uuid }?.view
     }
 
+    func session(for view: Ghostty.SurfaceView) -> Session? {
+        sessions.first { $0.view === view }
+    }
+
     @discardableResult
     func newSession() -> Session? {
         guard let app = ghostty.app else { return nil }
