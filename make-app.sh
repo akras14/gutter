@@ -11,6 +11,7 @@ rm -rf dist
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
 cp bin/Gutter "$APP/Contents/MacOS/Gutter"
+cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # Bundle ghostty's resources (themes, shell-integration, terminfo) like the
 # official app does (Resources/ghostty/...); libghostty resolves them via
