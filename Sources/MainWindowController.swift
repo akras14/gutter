@@ -107,12 +107,24 @@ extension MainWindowController {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        // Only our top-strip tracking area may reveal the bar. Subviews with
+        // their own tracking areas (the terminal surface tracks the mouse
+        // across its entire frame and forwards the event via super) bubble
+        // these events up the responder chain to us; pass those along.
+        guard event.trackingArea === topEdgeArea else {
+            super.mouseEntered(with: event)
+            return
+        }
         guard let window, window.styleMask.contains(.fullScreen), window.toolbar == nil,
               let toolbar = savedToolbar else { return }
         window.toolbar = toolbar
     }
 
     override func mouseExited(with event: NSEvent) {
+        guard event.trackingArea === topEdgeArea else {
+            super.mouseExited(with: event)
+            return
+        }
         guard let window, window.styleMask.contains(.fullScreen), window.toolbar != nil else { return }
         window.toolbar = nil
     }
