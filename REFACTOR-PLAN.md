@@ -295,11 +295,11 @@ method (~lines 112–114).
 chain is not reaching the split view controller. Do not fight it — revert this one step
 and report; the forwarding version works.
 
-- [ ] `MainMenu` sidebar item uses the `NSSplitViewController` selector, no target
-- [ ] Toolbar item uses the same selector, no `AppDelegate` reference
-- [ ] `AppDelegate.toggleSidebar` deleted
-- [ ] `./build.sh` succeeds
-- [ ] Manual check: `ctrl-cmd-S` toggles the sidebar; the toolbar button toggles it;
+- [x] `MainMenu` sidebar item uses the `NSSplitViewController` selector, no target
+- [x] Toolbar item uses the same selector, no `AppDelegate` reference
+- [x] `AppDelegate.toggleSidebar` deleted
+- [x] `./build.sh` succeeds
+- [x] Manual check: `ctrl-cmd-S` toggles the sidebar; the toolbar button toggles it;
       neither appears greyed out
 
 ---

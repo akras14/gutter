@@ -109,8 +109,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     @objc func previousTab(_ sender: Any?) {
         sessions.cycle(-1)
     }
-
-    @objc func toggleSidebar(_ sender: Any?) {
-        windowController?.splitVC.toggleSidebar(sender)
-    }
 }
