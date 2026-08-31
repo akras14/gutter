@@ -28,9 +28,9 @@ enum MainMenu {
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         let sidebar = viewMenu.addItem(withTitle: "Toggle Sidebar",
-                                       action: #selector(AppDelegate.toggleSidebar(_:)), keyEquivalent: "s")
+                                       action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
         sidebar.keyEquivalentModifierMask = [.command, .control]
-        sidebar.target = target
+        // No explicit target: the responder chain delivers this to MainSplitViewController.
         viewMenu.addItem(.separator())
         for i in 1...9 {
             let item = viewMenu.addItem(withTitle: "Select Tab \(i)",

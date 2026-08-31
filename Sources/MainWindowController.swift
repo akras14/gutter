@@ -79,8 +79,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         let item = NSToolbarItem(itemIdentifier: id)
         item.label = "Toggle Sidebar"
         item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar")
-        // The action lives on AppDelegate (menu and toolbar share one target).
-        item.action = #selector(AppDelegate.toggleSidebar(_:))
+        // Nil target: the responder chain delivers this to MainSplitViewController.
+        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
         item.isBordered = true
         return item
     }
