@@ -17,7 +17,7 @@ final class GhosttyBridge {
         nc.addObserver(forName: Ghostty.Notification.ghosttyCloseSurface, object: nil, queue: .main) {
             [weak self] note in
             guard let self, let view = note.object as? Ghostty.SurfaceView,
-                  let session = self.sessions.sessions.first(where: { $0.view === view }) else { return }
+                  let session = self.sessions.session(for: view) else { return }
             self.sessions.remove(session)
         }
 
@@ -30,7 +30,7 @@ final class GhosttyBridge {
         }
         nc.addObserver(forName: .ghosttyCloseTab, object: nil, queue: .main) { [weak self] note in
             guard let self, let view = note.object as? Ghostty.SurfaceView,
-                  let session = self.sessions.sessions.first(where: { $0.view === view }) else { return }
+                  let session = self.sessions.session(for: view) else { return }
             self.sessions.close(session)
         }
         nc.addObserver(forName: Ghostty.Notification.ghosttyGotoTab, object: nil, queue: .main) {
