@@ -20,7 +20,7 @@ See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, l
 
 | Path | Purpose |
 |---|---|
-| `Sources/` | App code: `AppDelegate` (window/menus), `SessionManager` (sessions, tabs), `SidebarViewController`, `TerminalShell.swift` (split view + surface container) |
+| `Sources/` | App code: `AppDelegate` (lifecycle + menu actions), `MainWindowController` (window, toolbar, fullscreen), `GhosttyBridge` (libghostty boundary), `SessionManager` (sessions, tabs), `SidebarViewController`, `MainSplitViewController.swift` (split view + surface container) |
 | `Sources/Shims.swift` | Stub types the vendored wrapper `as?`-casts to (no-op in this app) |
 | `Sources/Compat.swift` | Shims for Swift-overlay APIs missing from the CommandLineTools toolchain |
 | `Vendor/` | Swift wrapper copied from the ghostty checkout by `vendor.sh` (SurfaceView with input/IME, config, app runtime) |

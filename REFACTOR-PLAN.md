@@ -458,9 +458,9 @@ git mv Sources/TerminalShell.swift Sources/MainSplitViewController.swift
 Optionally also split `TerminalContainerViewController` into its own file. `build.sh`
 globs `Sources/*.swift`, so no script change is needed.
 
-- [ ] File renamed
-- [ ] `README.md` layout table updated (it names `TerminalShell.swift`)
-- [ ] `./build.sh` succeeds
+- [x] File renamed (`TerminalContainerViewController` left in the same file)
+- [x] `README.md` layout table updated (it names `TerminalShell.swift`)
+- [x] `./build.sh` succeeds
 
 ---
 
