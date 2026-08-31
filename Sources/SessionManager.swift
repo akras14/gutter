@@ -28,6 +28,7 @@ final class SessionManager {
 
     var onListChanged: (() -> Void)?
     var onSelectionChanged: ((Session?) -> Void)?
+    var onEmpty: (() -> Void)?
 
     private var cancellables: [UUID: AnyCancellable] = [:]
 
@@ -120,7 +121,7 @@ final class SessionManager {
         onListChanged?()
 
         if sessions.isEmpty {
-            NSApp.terminate(nil)
+            onEmpty?()
         }
     }
 }

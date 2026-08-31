@@ -61,6 +61,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
             self.splitVC.show(session)
             self.window?.makeFirstResponder(session?.view)
         }
+        // Last tab gone: close the window. applicationShouldTerminateAfter-
+        // LastWindowClosed then quits the app. close(), not performClose():
+        // the latter consults the delegate and can be vetoed.
+        sessions.onEmpty = { [weak self] in
+            self?.window?.close()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }

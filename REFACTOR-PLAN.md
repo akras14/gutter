@@ -407,10 +407,10 @@ sessions.onEmpty = { [weak self] in
 **Watch out:** use `close()`, not `performClose(nil)` — `performClose` consults the
 window delegate and can be vetoed.
 
-- [ ] `onEmpty` added and fired; `NSApp.terminate` removed from `SessionManager`
-- [ ] `MainWindowController` closes the window on empty
-- [ ] `./build.sh` succeeds
-- [ ] Manual check: closing the last tab quits the app (this is intentional, it matches
+- [x] `onEmpty` added and fired; `NSApp.terminate` removed from `SessionManager`
+- [x] `MainWindowController` closes the window on empty
+- [x] `./build.sh` succeeds
+- [x] Manual check: closing the last tab quits the app (this is intentional, it matches
       Terminal.app)
 
 ---
