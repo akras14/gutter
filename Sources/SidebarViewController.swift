@@ -93,7 +93,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             cell = SessionCellView()
             cell.identifier = cellID
         }
-        cell.configure(title: session.displayName, active: session.hasActivity)
+        cell.configure(title: session.title, active: session.hasActivity, shortcut: row < 9 ? "⌘\(row + 1)" : "")
         return cell
     }
 
@@ -107,40 +107,55 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-/// Title + activity dot for one sidebar row.
+/// Title + activity dot + shortcut hint for one sidebar row.
 final class SessionCellView: NSTableCellView {
     private let dot = ActivityDotView()
     private let label = NSTextField(labelWithString: "")
+    private let hint = NSTextField(labelWithString: "")
 
     init() {
         super.init(frame: .zero)
         label.lineBreakMode = .byTruncatingTail
+        label.usesSingleLineMode = true
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.translatesAutoresizingMaskIntoConstraints = false
+        hint.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 2, weight: .regular)
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        hint.setContentCompressionResistancePriority(.required, for: .horizontal)
+        hint.setContentHuggingPriority(.required, for: .horizontal)
         dot.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dot)
         addSubview(label)
+        addSubview(hint)
         NSLayoutConstraint.activate([
             dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             dot.centerYAnchor.constraint(equalTo: centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 7),
             dot.heightAnchor.constraint(equalToConstant: 7),
             label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            label.trailingAnchor.constraint(equalTo: hint.leadingAnchor, constant: -6),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hint.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            hint.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func configure(title: String, active: Bool) {
+    func configure(title: String, active: Bool, shortcut: String) {
         label.stringValue = title
+        hint.stringValue = shortcut
+        hint.isHidden = shortcut.isEmpty
         dot.isActive = active
+        needsLayout = true
     }
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
             label.textColor = backgroundStyle == .emphasized ? .white : .labelColor
+            hint.textColor = backgroundStyle == .emphasized
+                ? .white.withAlphaComponent(0.7)
+                : .secondaryLabelColor
         }
     }
 }

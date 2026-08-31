@@ -13,10 +13,6 @@ final class Session {
         self.id = view.id
         self.view = view
     }
-
-    var displayName: String {
-        title.isEmpty ? "Terminal" : title
-    }
 }
 
 /// Owns the list of terminal sessions and which one is selected.

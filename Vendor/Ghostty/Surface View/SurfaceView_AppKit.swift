@@ -317,12 +317,9 @@ extension Ghostty {
                 return String(cString: text.text)
             }
 
-            // Set a timer to show the ghost emoji after 500ms if no title is set
-            titleFallbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                if let self = self, self.title.isEmpty {
-                    self.title = "👻"
-                }
-            }
+            // Gutter patch: upstream shows a 👻 fallback title 500ms after
+            // surface creation if the shell hasn't set one yet; the sidebar
+            // leaves it blank until the shell sets a title, so no timer needed.
 
             // Before we initialize the surface we want to register our notifications
             // so there is no window where we can't receive them.
