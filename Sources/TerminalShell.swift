@@ -20,7 +20,7 @@ final class MainSplitViewController: NSSplitViewController {
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: SidebarViewController(sessions: sessions))
         sidebarItem.minimumThickness = 170
-        sidebarItem.maximumThickness = 320
+        sidebarItem.maximumThickness = 480
         sidebarItem.canCollapse = true
         sidebarVC = sidebarItem.viewController as? SidebarViewController
         addSplitViewItem(sidebarItem)
@@ -32,6 +32,10 @@ final class MainSplitViewController: NSSplitViewController {
 
     func sidebarReload() {
         sidebarVC?.reload()
+    }
+
+    func setSidebarWidth(_ width: CGFloat) {
+        splitView.setPosition(width, ofDividerAt: 0)
     }
 
     func show(_ session: Session?) {
