@@ -2,7 +2,6 @@ import AppKit
 import GhosttyKit
 
 /// Window shell: collapsible sidebar on the left, terminal surface on the right.
-/// Also hosts the responder-chain actions the menu items target.
 final class MainSplitViewController: NSSplitViewController {
     let sessions: SessionManager
     private let container = TerminalContainerViewController()
@@ -40,30 +39,6 @@ final class MainSplitViewController: NSSplitViewController {
 
     func show(_ session: Session?) {
         container.show(session)
-    }
-
-    // MARK: Responder-chain actions (menu items use nil targets)
-
-    @IBAction func newTab(_ sender: Any?) {
-        guard let app = (NSApp.delegate as? AppDelegate)?.ghostty.app else { return }
-        sessions.newSession(app: app)
-    }
-
-    @IBAction func closeTab(_ sender: Any?) {
-        sessions.closeSelected()
-    }
-
-    @IBAction func selectTab(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem else { return }
-        sessions.select(index: item.tag)
-    }
-
-    @IBAction func nextTab(_ sender: Any?) {
-        sessions.cycle(1)
-    }
-
-    @IBAction func previousTab(_ sender: Any?) {
-        sessions.cycle(-1)
     }
 }
 
