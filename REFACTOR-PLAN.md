@@ -364,11 +364,11 @@ init(sessions: SessionManager) {
 If the compiler complains about `self` being used before initialization, you moved the
 assignment to the wrong side of `super.init(window:)`.
 
-- [ ] Closures deleted from `AppDelegate`
-- [ ] Closures added at the end of `MainWindowController.init`
-- [ ] `splitVC` is a `private let`, assigned before `super.init`
-- [ ] `./build.sh` succeeds
-- [ ] Manual check: opening/closing tabs updates the sidebar; clicking a sidebar row
+- [x] Closures deleted from `AppDelegate`
+- [x] Closures added at the end of `MainWindowController.init`
+- [x] `splitVC` is a `private let`, assigned before `super.init`
+- [x] `./build.sh` succeeds
+- [x] Manual check: opening/closing tabs updates the sidebar; clicking a sidebar row
       switches the visible terminal and typing goes to it immediately
 
 ---

@@ -9,13 +9,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     static let defaultContentSize = NSSize(width: 1750, height: 1120)
     static let sidebarWidth: CGFloat = 330
 
-    var splitVC: MainSplitViewController!
+    private let splitVC: MainSplitViewController
     private let sessions: SessionManager
     private var savedToolbar: NSToolbar?
     private var topEdgeArea: NSTrackingArea?
 
     init(sessions: SessionManager) {
         let split = MainSplitViewController(sessions: sessions)
+        self.splitVC = split
         self.sessions = sessions
 
         let window = NSWindow(
@@ -26,7 +27,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
         super.init(window: window)
 
-        self.splitVC = split
         window.delegate = self
         window.toolbar = makeToolbar()
         window.toolbarStyle = .unified
@@ -49,6 +49,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         split.splitView.autosaveName = "Gutter Main Split"
         if !hasSavedSplit {
             split.setSidebarWidth(Self.sidebarWidth)
+        }
+
+        // The window owns session -> UI wiring: sidebar refresh, showing the
+        // selected surface, and handing it first responder.
+        sessions.onListChanged = { [weak self] in
+            self?.splitVC.sidebarReload()
+        }
+        sessions.onSelectionChanged = { [weak self] session in
+            guard let self else { return }
+            self.splitVC.show(session)
+            self.window?.makeFirstResponder(session?.view)
         }
     }
 
