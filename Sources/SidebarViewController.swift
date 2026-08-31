@@ -28,7 +28,7 @@ final class SidebarViewController: NSViewController {
         table.allowsEmptySelection = true
         table.allowsMultipleSelection = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sessions"))
-        column.width = 220
+        column.width = 330
         table.addTableColumn(column)
         table.dataSource = self
         table.delegate = self

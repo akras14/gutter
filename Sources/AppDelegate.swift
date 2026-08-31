@@ -49,18 +49,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 1750, height: 1120),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "Gutter"
         window.toolbar = makeToolbar()
         window.toolbarStyle = .unified
-        window.setFrameAutosaveName("Gutter Main Window")
         window.delegate = self
 
         let split = MainSplitViewController(sessions: sessions)
         window.contentViewController = split
-        window.center()
+        if let visible = NSScreen.main?.visibleFrame {
+            let maxContent = window.contentRect(forFrameRect: visible)
+            let content = NSRect(
+                origin: .zero,
+                size: NSSize(width: min(1750, maxContent.width), height: min(1120, maxContent.height)))
+            window.setFrame(window.frameRect(forContentRect: content), display: false)
+        }
+        let hasSavedFrame = UserDefaults.standard.object(forKey: "NSWindow Frame Gutter Main Window") != nil
+        window.setFrameAutosaveName("Gutter Main Window")
+        if !hasSavedFrame {
+            window.center()
+        }
+        let hasSavedSplit = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames Gutter Main Split") != nil
+        split.splitView.autosaveName = "Gutter Main Split"
+        if !hasSavedSplit {
+            split.setSidebarWidth(330)
+        }
         self.window = window
         self.splitVC = split
 
