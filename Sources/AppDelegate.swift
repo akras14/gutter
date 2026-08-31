@@ -40,10 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         }
 
         ghostty.delegate = self
-        sessions.requestClose = { [weak self] view in
-            guard let self, let surface = view.surface else { return }
-            self.ghostty.requestClose(surface: surface)
-        }
+        _ = GhosttyBridge(sessions: sessions, ghostty: ghostty)
 
         let windowController = MainWindowController(sessions: sessions)
         self.windowController = windowController
@@ -57,52 +54,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
             guard let split = windowController?.splitVC else { return }
             split.show(session)
             split.view.window?.makeFirstResponder(session?.view)
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: Ghostty.Notification.ghosttyCloseSurface, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let view = note.object as? Ghostty.SurfaceView else { return }
-            guard let session = self?.sessions.sessions.first(where: { $0.view === view }) else { return }
-            self?.sessions.remove(session)
-        }
-
-        // Ghostty's own keybinds (cmd-t/cmd-w etc.) are consumed by the core and
-        // emitted as app actions; wire them to the session manager so the user's
-        // configured keybinds work as-is.
-        NotificationCenter.default.addObserver(
-            forName: Ghostty.Notification.ghosttyNewTab, object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.newTab(nil)
-        }
-        NotificationCenter.default.addObserver(
-            forName: .ghosttyCloseTab, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let view = note.object as? Ghostty.SurfaceView else { return }
-            if let session = self?.sessions.sessions.first(where: { $0.view === view }) {
-                self?.sessions.close(session)
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: Ghostty.Notification.ghosttyGotoTab, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let any = note.userInfo?[Ghostty.Notification.GotoTabKey],
-                  let tab = any as? ghostty_action_goto_tab_e else { return }
-            let raw = tab.rawValue
-            if raw > 0 {
-                self?.sessions.select(index: Int(raw) - 1)
-            } else if raw == GHOSTTY_GOTO_TAB_PREVIOUS.rawValue {
-                self?.sessions.cycle(-1)
-            } else if raw == GHOSTTY_GOTO_TAB_NEXT.rawValue {
-                self?.sessions.cycle(1)
-            }
-        }
-
-        // Ghostty's toggle_fullscreen action -> native fullscreen on the surface's window.
-        NotificationCenter.default.addObserver(
-            forName: Ghostty.Notification.ghosttyToggleFullscreen, object: nil, queue: .main
-        ) { note in
-            (note.object as? Ghostty.SurfaceView)?.window?.toggleFullScreen(nil)
         }
 
         windowController.showWindow(nil)
