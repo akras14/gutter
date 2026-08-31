@@ -60,6 +60,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         sessions.newSession(app: app)
+
+        // showWindow only orders front; a window that never becomes key eats
+        // the first keystrokes (menu key equivalents need a key window), so
+        // force the key state and put the terminal surface on deck.
+        if let window = windowController.window, !window.isKeyWindow {
+            window.makeKeyAndOrderFront(nil)
+        }
+        if let session = sessions.selected {
+            windowController.window?.makeFirstResponder(session.view)
+        }
     }
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {

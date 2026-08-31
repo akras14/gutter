@@ -10,11 +10,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     static let sidebarWidth: CGFloat = 330
 
     var splitVC: MainSplitViewController!
+    private let sessions: SessionManager
     private var savedToolbar: NSToolbar?
     private var topEdgeArea: NSTrackingArea?
 
     init(sessions: SessionManager) {
         let split = MainSplitViewController(sessions: sessions)
+        self.sessions = sessions
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.defaultContentSize),
@@ -88,6 +90,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 // native fullscreen and only slides back while the pointer is in the top strip
 // of the screen. Exiting fullscreen always restores it.
 extension MainWindowController {
+    func windowDidBecomeKey(_ notification: Notification) {
+        // A key window with no view holding focus (fresh launch, focus lost
+        // during activation) would eat keystrokes: menu key equivalents never
+        // fire without a key window, and ghostty bindings need the surface
+        // focused. If nothing owns focus, hand it to the terminal surface.
+        guard window?.firstResponder is NSWindow,
+              let session = sessions.selected else { return }
+        window?.makeFirstResponder(session.view)
+    }
     private static let topEdgeHeight: CGFloat = 40
 
     func windowWillEnterFullScreen(_ notification: Notification) {
