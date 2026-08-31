@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
     private var window: NSWindow!
     private var splitVC: MainSplitViewController?
+    private var savedToolbar: NSToolbar?
+    private var topEdgeArea: NSTrackingArea?
     let sessions = SessionManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -54,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         window.toolbar = makeToolbar()
         window.toolbarStyle = .unified
         window.setFrameAutosaveName("Gutter Main Window")
+        window.delegate = self
 
         let split = MainSplitViewController(sessions: sessions)
         window.contentViewController = split
@@ -106,6 +109,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
             } else if raw == GHOSTTY_GOTO_TAB_NEXT.rawValue {
                 self?.sessions.cycle(1)
             }
+        }
+
+        // Ghostty's toggle_fullscreen action -> native fullscreen on the surface's window.
+        NotificationCenter.default.addObserver(
+            forName: Ghostty.Notification.ghosttyToggleFullscreen, object: nil, queue: .main
+        ) { note in
+            (note.object as? Ghostty.SurfaceView)?.window?.toggleFullScreen(nil)
         }
 
         window.makeKeyAndOrderFront(nil)
@@ -237,5 +247,58 @@ extension AppDelegate: NSToolbarDelegate {
         item.target = self
         item.isBordered = true
         return item
+    }
+}
+
+// Fullscreen chrome: the top bar (toolbar) is removed for the duration of
+// native fullscreen and only slides back while the pointer is in the top strip
+// of the screen. Exiting fullscreen always restores it.
+extension AppDelegate: NSWindowDelegate {
+    private static let topEdgeHeight: CGFloat = 40
+
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        // Drop it before the transition zooms so it never floats over the content.
+        savedToolbar = window.toolbar
+        window.toolbar = nil
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        installTopEdgeTracking()
+    }
+
+    func windowWillExitFullScreen(_ notification: Notification) {
+        removeTopEdgeTracking()
+        window.toolbar = savedToolbar
+        savedToolbar = nil
+    }
+
+    @objc func mouseEntered(_ event: NSEvent) {
+        guard window.styleMask.contains(.fullScreen), window.toolbar == nil,
+              let toolbar = savedToolbar else { return }
+        window.toolbar = toolbar
+    }
+
+    @objc func mouseExited(_ event: NSEvent) {
+        guard window.styleMask.contains(.fullScreen), window.toolbar != nil else { return }
+        window.toolbar = nil
+    }
+
+    private func installTopEdgeTracking() {
+        guard let content = window.contentView, topEdgeArea == nil else { return }
+        let height = Self.topEdgeHeight
+        let area = NSTrackingArea(
+            rect: NSRect(x: 0, y: content.bounds.maxY - height, width: content.bounds.width, height: height),
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil)
+        content.addTrackingArea(area)
+        topEdgeArea = area
+    }
+
+    private func removeTopEdgeTracking() {
+        if let area = topEdgeArea {
+            window.contentView?.removeTrackingArea(area)
+            topEdgeArea = nil
+        }
     }
 }
