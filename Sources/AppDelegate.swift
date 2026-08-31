@@ -25,10 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     func toggleQuickTerminal(_ sender: Any?) {}
     func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool { false }
 
-    private var window: NSWindow!
-    private var splitVC: MainSplitViewController?
-    private var savedToolbar: NSToolbar?
-    private var topEdgeArea: NSTrackingArea?
+    private var windowController: MainWindowController!
     let sessions = SessionManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -48,43 +45,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
             self.ghostty.requestClose(surface: surface)
         }
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1750, height: 1120),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        window.title = "Gutter"
-        window.toolbar = makeToolbar()
-        window.toolbarStyle = .unified
-        window.delegate = self
-
-        let split = MainSplitViewController(sessions: sessions)
-        window.contentViewController = split
-        if let visible = NSScreen.main?.visibleFrame {
-            let maxContent = window.contentRect(forFrameRect: visible)
-            let content = NSRect(
-                origin: .zero,
-                size: NSSize(width: min(1750, maxContent.width), height: min(1120, maxContent.height)))
-            window.setFrame(window.frameRect(forContentRect: content), display: false)
-        }
-        let hasSavedFrame = UserDefaults.standard.object(forKey: "NSWindow Frame Gutter Main Window") != nil
-        window.setFrameAutosaveName("Gutter Main Window")
-        if !hasSavedFrame {
-            window.center()
-        }
-        let hasSavedSplit = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames Gutter Main Split") != nil
-        split.splitView.autosaveName = "Gutter Main Split"
-        if !hasSavedSplit {
-            split.setSidebarWidth(330)
-        }
-        self.window = window
-        self.splitVC = split
+        let windowController = MainWindowController(sessions: sessions)
+        self.windowController = windowController
 
         buildMenus()
 
-        sessions.onListChanged = { [weak split] in split?.sidebarReload() }
-        sessions.onSelectionChanged = { [weak split] session in
-            split?.show(session)
-            split?.view.window?.makeFirstResponder(session?.view)
+        sessions.onListChanged = { [weak windowController] in
+            windowController?.splitVC.sidebarReload()
+        }
+        sessions.onSelectionChanged = { [weak windowController] session in
+            guard let split = windowController?.splitVC else { return }
+            split.show(session)
+            split.view.window?.makeFirstResponder(session?.view)
         }
 
         NotificationCenter.default.addObserver(
@@ -133,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
             (note.object as? Ghostty.SurfaceView)?.window?.toggleFullScreen(nil)
         }
 
-        window.makeKeyAndOrderFront(nil)
+        windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         sessions.newSession(app: app)
@@ -146,13 +118,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
-
-    private func makeToolbar() -> NSToolbar {
-        let toolbar = NSToolbar(identifier: "Main")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        return toolbar
-    }
 
     private func buildMenus() {
         let main = NSMenu()
@@ -237,83 +202,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     }
 
     @objc func toggleSidebar(_ sender: Any?) {
-        splitVC?.toggleSidebar(sender)
-    }
-}
-
-extension AppDelegate: NSToolbarDelegate {
-    private static let sidebarID = NSToolbarItem.Identifier("sidebar")
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.sidebarID]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.sidebarID]
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard id == Self.sidebarID else { return nil }
-        let item = NSToolbarItem(itemIdentifier: id)
-        item.label = "Toggle Sidebar"
-        item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar")
-        item.action = #selector(toggleSidebar(_:))
-        item.target = self
-        item.isBordered = true
-        return item
-    }
-}
-
-// Fullscreen chrome: the top bar (toolbar) is removed for the duration of
-// native fullscreen and only slides back while the pointer is in the top strip
-// of the screen. Exiting fullscreen always restores it.
-extension AppDelegate: NSWindowDelegate {
-    private static let topEdgeHeight: CGFloat = 40
-
-    func windowWillEnterFullScreen(_ notification: Notification) {
-        // Drop it before the transition zooms so it never floats over the content.
-        savedToolbar = window.toolbar
-        window.toolbar = nil
-    }
-
-    func windowDidEnterFullScreen(_ notification: Notification) {
-        installTopEdgeTracking()
-    }
-
-    func windowWillExitFullScreen(_ notification: Notification) {
-        removeTopEdgeTracking()
-        window.toolbar = savedToolbar
-        savedToolbar = nil
-    }
-
-    @objc func mouseEntered(_ event: NSEvent) {
-        guard window.styleMask.contains(.fullScreen), window.toolbar == nil,
-              let toolbar = savedToolbar else { return }
-        window.toolbar = toolbar
-    }
-
-    @objc func mouseExited(_ event: NSEvent) {
-        guard window.styleMask.contains(.fullScreen), window.toolbar != nil else { return }
-        window.toolbar = nil
-    }
-
-    private func installTopEdgeTracking() {
-        guard let content = window.contentView, topEdgeArea == nil else { return }
-        let height = Self.topEdgeHeight
-        let area = NSTrackingArea(
-            rect: NSRect(x: 0, y: content.bounds.maxY - height, width: content.bounds.width, height: height),
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil)
-        content.addTrackingArea(area)
-        topEdgeArea = area
-    }
-
-    private func removeTopEdgeTracking() {
-        if let area = topEdgeArea {
-            window.contentView?.removeTrackingArea(area)
-            topEdgeArea = nil
-        }
+        windowController?.splitVC.toggleSidebar(sender)
     }
 }
