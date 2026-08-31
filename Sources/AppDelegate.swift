@@ -49,15 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
         buildMenus()
 
-        sessions.onListChanged = { [weak windowController] in
-            windowController?.splitVC.sidebarReload()
-        }
-        sessions.onSelectionChanged = { [weak windowController] session in
-            guard let split = windowController?.splitVC else { return }
-            split.show(session)
-            split.view.window?.makeFirstResponder(session?.view)
-        }
-
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
 
