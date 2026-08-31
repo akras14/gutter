@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool { false }
 
     private var windowController: MainWindowController!
+    private var bridge: GhosttyBridge!        // must be retained or its observers die
     let sessions = SessionManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -40,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         }
 
         ghostty.delegate = self
-        _ = GhosttyBridge(sessions: sessions, ghostty: ghostty)
+        bridge = GhosttyBridge(sessions: sessions, ghostty: ghostty)
 
         let windowController = MainWindowController(sessions: sessions)
         self.windowController = windowController
