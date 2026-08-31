@@ -135,4 +135,27 @@ p.write_text(s.replace(old, new))
 print("patched Ghostty.Config.swift embedder hook")
 PYEOF
 
+# SurfaceView_AppKit.swift: drop the 👻 fallback title upstream schedules when
+# a surface has no title yet - the sidebar leaves it blank until the shell
+# sets one.
+python3 - "$DEST/Ghostty/Surface View/SurfaceView_AppKit.swift" <<'PYEOF'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+old = """            // Set a timer to show the ghost emoji after 500ms if no title is set
+            titleFallbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+                if let self = self, self.title.isEmpty {
+                    self.title = "👻"
+                }
+            }
+"""
+new = """            // Gutter patch: upstream shows a 👻 fallback title 500ms after
+            // surface creation if the shell hasn't set one yet; the sidebar
+            // leaves it blank until the shell sets a title, so no timer needed.
+"""
+assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
+p.write_text(s.replace(old, new))
+print("patched SurfaceView_AppKit.swift ghost title fallback")
+PYEOF
+
 echo "vendored $(find "$DEST" -name '*.swift' | wc -l | tr -d ' ') swift files from $GHOSTTY"
