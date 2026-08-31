@@ -17,12 +17,14 @@ final class Session {
 
 /// Owns the list of terminal sessions and which one is selected.
 final class SessionManager {
+    private let ghostty: Ghostty.App
+
+    init(ghostty: Ghostty.App) {
+        self.ghostty = ghostty
+    }
+
     private(set) var sessions: [Session] = []
     private(set) var selected: Session?
-
-    /// Called by AppDelegate; asks libghostty to close a surface. libghostty
-    /// then fires ghosttyCloseSurface when it's really gone.
-    var requestClose: ((Ghostty.SurfaceView) -> Void)?
 
     var onListChanged: (() -> Void)?
     var onSelectionChanged: ((Session?) -> Void)?
@@ -34,7 +36,8 @@ final class SessionManager {
     }
 
     @discardableResult
-    func newSession(app: ghostty_app_t) -> Session? {
+    func newSession() -> Session? {
+        guard let app = ghostty.app else { return nil }
         let view = Ghostty.SurfaceView(app, baseConfig: nil, uuid: nil)
         let session = Session(view: view)
         sessions.append(session)
@@ -89,8 +92,8 @@ final class SessionManager {
     }
 
     func close(_ session: Session) {
-        if session.view.surface != nil {
-            requestClose?(session.view)
+        if let surface = session.view.surface {
+            ghostty.requestClose(surface: surface)
         } else {
             remove(session)
         }

@@ -13,11 +13,6 @@ final class GhosttyBridge {
         self.sessions = sessions
         self.ghostty = ghostty
 
-        sessions.requestClose = { [weak self] view in
-            guard let self, let surface = view.surface else { return }
-            self.ghostty.requestClose(surface: surface)
-        }
-
         let nc = NotificationCenter.default
         nc.addObserver(forName: Ghostty.Notification.ghosttyCloseSurface, object: nil, queue: .main) {
             [weak self] note in
@@ -31,8 +26,7 @@ final class GhosttyBridge {
         // configured keybinds work as-is.
         nc.addObserver(forName: Ghostty.Notification.ghosttyNewTab, object: nil, queue: .main) {
             [weak self] _ in
-            guard let self, let app = self.ghostty.app else { return }
-            self.sessions.newSession(app: app)
+            self?.sessions.newSession()
         }
         nc.addObserver(forName: .ghosttyCloseTab, object: nil, queue: .main) { [weak self] note in
             guard let self, let view = note.object as? Ghostty.SurfaceView,

@@ -27,10 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
     private var windowController: MainWindowController!
     private var bridge: GhosttyBridge!        // must be retained or its observers die
-    let sessions = SessionManager()
+    private(set) var sessions: SessionManager!   // read by a Gutter patch in Vendor/Ghostty.App.swift
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard ghostty.readiness == .ready, let app = ghostty.app else {
+        guard ghostty.readiness == .ready, ghostty.app != nil else {
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = "Failed to load Ghostty config"
@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         }
 
         ghostty.delegate = self
+        sessions = SessionManager(ghostty: ghostty)
         bridge = GhosttyBridge(sessions: sessions, ghostty: ghostty)
 
         let windowController = MainWindowController(sessions: sessions)
@@ -60,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        sessions.newSession(app: app)
+        sessions.newSession()
 
         // showWindow only orders front; a window that never becomes key eats
         // the first keystrokes (menu key equivalents need a key window), so
@@ -74,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     }
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
-        sessions.surface(for: uuid)
+        sessions?.surface(for: uuid)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -89,8 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
     @objc func newTab(_ sender: Any?) {
         Self.logger.info("newTab requested (menu)")
-        guard let app = ghostty.app else { return }
-        sessions.newSession(app: app)
+        sessions.newSession()
     }
 
     @objc func closeTab(_ sender: Any?) {
