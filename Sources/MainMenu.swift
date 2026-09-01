@@ -83,12 +83,27 @@ enum MainMenu {
         viewItem.submenu = viewMenu
         main.addItem(viewItem)
 
+        let helpItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+        // ⌘? is the standard macOS help key, and unlike ⌘/ it doesn't take a
+        // bare keystroke away from the terminal.
+        let shortcuts = helpMenu.addItem(withTitle: "Keyboard Shortcuts",
+                                         action: #selector(AppDelegate.showShortcuts(_:)), keyEquivalent: "/")
+        shortcuts.keyEquivalentModifierMask = [.command, .shift]
+        shortcuts.target = target
+        helpItem.submenu = helpMenu
+
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
+
+        // Added last so Help sits at the right end of the bar, and registered
+        // with NSApp so the system adds its search field.
+        main.addItem(helpItem)
+        NSApp.helpMenu = helpMenu
 
         return main
     }
