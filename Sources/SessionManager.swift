@@ -12,8 +12,39 @@ final class Session {
     /// Set by the user via rename; wins over the shell's title until cleared.
     var customTitle: String?
     var hasActivity: Bool = false
+    /// Working directory, from libghostty's pwd action. nil until shell
+    /// integration reports one, so some shells never fill it in.
+    var pwd: String?
+    /// `pwd`'s last component, or "~" for the home directory itself.
+    var folder: String?
+    /// Branch at `pwd`. nil outside a repo or on a detached HEAD.
+    var branch: String?
 
     var displayTitle: String { customTitle ?? title }
+
+    /// Folder plus branch: the stable identity of a session, as opposed to the
+    /// title, which Claude Code and the shell both rewrite constantly.
+    var location: String {
+        guard let folder else { return "" }
+        guard let branch else { return folder }
+        return "\(folder) ⎇ \(branch)"
+    }
+
+    /// Top line: the name the user gave the session, else where it is, else
+    /// whatever the shell calls itself.
+    var primaryLine: String {
+        if let customTitle { return customTitle }
+        return location.isEmpty ? title : location
+    }
+
+    /// Bottom line: the live title under a stable top line, or the location
+    /// under a name the user chose. Empty when it would only repeat the top
+    /// line - a one-line row is better than a row that says it twice.
+    var secondaryLine: String {
+        let secondary = customTitle == nil ? title : location
+        if secondary == primaryLine || secondary == folder { return "" }
+        return secondary
+    }
 
     fileprivate init(view: Ghostty.SurfaceView) {
         self.id = view.id
@@ -61,6 +92,13 @@ final class SessionManager {
                 self?.onListChanged?()
             }
 
+        // Working directory, for the sidebar's folder + branch line.
+        let pwdSub = view.$pwd
+            .receive(on: RunLoop.main)
+            .sink { [weak self] pwd in
+                self?.updateLocation(session, pwd: pwd)
+            }
+
         // Bell/activity: dot on any tab that isn't the selected one.
         let bellSub = NotificationCenter.default.publisher(for: .ghosttyBellDidRing)
             .filter { ($0.object as? Ghostty.SurfaceView) === view }
@@ -74,11 +112,40 @@ final class SessionManager {
 
         cancellables[session.id] = AnyCancellable {
             titleSub.cancel()
+            pwdSub.cancel()
             bellSub.cancel()
         }
 
         select(session)
         return session
+    }
+
+    /// The folder is free; the branch costs a git process, so it only runs when
+    /// the directory actually changed, and off the main thread.
+    private func updateLocation(_ session: Session, pwd: String?) {
+        guard session.pwd != pwd else { return }
+        session.pwd = pwd
+        session.folder = pwd.map { $0 == NSHomeDirectory() ? "~" : ($0 as NSString).lastPathComponent }
+        session.branch = nil
+        onListChanged?()
+
+        guard let pwd else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let branch = Self.branch(in: pwd)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, session.pwd == pwd,
+                      self.sessions.contains(where: { $0 === session }) else { return }
+                session.branch = branch
+                self.onListChanged?()
+            }
+        }
+    }
+
+    private static func branch(in directory: String) -> String? {
+        guard let (output, status) = GitDiff.run(["symbolic-ref", "--short", "-q", "HEAD"], in: directory),
+              status == 0 else { return nil }
+        let name = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     /// An empty or blank name clears the override and hands the row back to
