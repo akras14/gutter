@@ -498,9 +498,9 @@ fought twice (see commits `3999c3a`, `f8d6019`). It is cosmetic — it removes d
 logic, nothing more. If the manual check below fails at all, **revert this step and
 keep the duplication.** A working app beats a tidy one.
 
-- [ ] Reordered and trailing block deleted
-- [ ] `./build.sh && ./make-app.sh` succeeds
-- [ ] Manual check: launch the app fresh and type immediately without clicking — every
+- [x] Reordered and trailing block deleted
+- [x] `./build.sh && ./make-app.sh` succeeds
+- [x] Manual check: launch the app fresh and type immediately without clicking — every
       character must appear in the terminal. Also `cmd-t` immediately after launch.
 
 ---
