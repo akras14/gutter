@@ -3,6 +3,8 @@
 A small native macOS terminal app with a vertical tab sidebar, embedding
 [libghostty](https://ghostty.org) (ghostty **v1.3.1**) as a static library.
 
+![Gutter: sidebar of sessions on the left, live terminal surface on the right](assets/screenshot.jpg)
+
 One window, one collapsible sidebar. Every session is a real libghostty surface -
 Metal rendering, PTY handling, VT emulation, input/IME and config loading all come
 from ghostty's core and its own Swift wrapper. The app itself is ~700 lines of
