@@ -13,6 +13,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private let sessions: SessionManager
     private var savedToolbar: NSToolbar?
     private var pointerMonitor: Any?
+    private var diffWindow: GitDiffWindowController?
     private var savedAcceptsMouseMoved: Bool?
 
     init(sessions: SessionManager) {
@@ -79,6 +80,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     // MARK: Toolbar
 
     private static let sidebarID = NSToolbarItem.Identifier("sidebar")
+    private static let gitDiffID = NSToolbarItem.Identifier("gitDiff")
 
     private func makeToolbar() -> NSToolbar {
         let toolbar = NSToolbar(identifier: "Main")
@@ -88,23 +90,45 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.sidebarID]
+        [Self.sidebarID, .flexibleSpace, Self.gitDiffID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.sidebarID]
+        [Self.sidebarID, .flexibleSpace, Self.gitDiffID]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard id == Self.sidebarID else { return nil }
-        let item = NSToolbarItem(itemIdentifier: id)
-        item.label = "Toggle Sidebar"
-        item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar")
-        // Nil target: the responder chain delivers this to MainSplitViewController.
-        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
-        item.isBordered = true
-        return item
+        switch id {
+        case Self.sidebarID:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = "Toggle Sidebar"
+            item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar")
+            // Nil target: the responder chain delivers this to MainSplitViewController.
+            item.action = #selector(NSSplitViewController.toggleSidebar(_:))
+            item.isBordered = true
+            return item
+        case Self.gitDiffID:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = "Git Diff"
+            item.toolTip = "Show uncommitted changes in this session's directory"
+            item.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "Git Diff")
+            item.target = self
+            item.action = #selector(showGitDiff(_:))
+            item.isBordered = true
+            return item
+        default:
+            return nil
+        }
+    }
+
+    /// The diff is of whatever directory the selected session is sitting in
+    /// (`pwd` comes from the shell, so it tracks `cd` inside the tab). One
+    /// window, reused: clicking again refreshes it.
+    @objc func showGitDiff(_ sender: Any?) {
+        let controller = diffWindow ?? GitDiffWindowController()
+        diffWindow = controller
+        controller.present(directory: sessions.selected?.view.pwd)
     }
 }
 
