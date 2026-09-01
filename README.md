@@ -175,12 +175,26 @@ Recipients should know:
 
 ## Keybinds
 
+Every one of these also appears in the in-app list (Help -> Keyboard
+Shortcuts, `cmd-shift-/`), which is built by hand in
+`ShortcutsWindowController.swift`. Adding a keybind means editing three places:
+`MainMenu.swift`, that list, and this table.
+
 | Keys | Action |
 |---|---|
 | `cmd-t` / `cmd-w` | New tab / close tab (ghostty core keybinds -> notifications -> sidebar) |
+| `cmd-shift-r` | Rename tab |
 | `cmd-1..9` | Select tab N |
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |
-| `ctrl-cmd-S` or toolbar button | Toggle sidebar |
+| `cmd-b` or toolbar button | Toggle sidebar |
+| `ctrl-shift-g` | Show uncommitted changes |
+| `cmd-f` / `cmd-g` / `cmd-shift-g` | Find in scrollback / next / previous |
+| `cmd-e` | Use selection for find |
+| `cmd-,` / `cmd-shift-,` | Open / reload the ghostty config |
+| `cmd-shift-/` | Keyboard shortcuts |
+
+In the uncommitted-changes window: `cmd-]` / `cmd-[` next and previous change,
+`cmd-r` refresh, `cmd-w` close.
 
 ## Troubleshooting
 
