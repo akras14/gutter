@@ -5,6 +5,7 @@ import GhosttyKit
 final class SidebarViewController: NSViewController {
     private let sessions: SessionManager
     private var tableView: NSTableView!
+    private var scrollView: NSScrollView!
 
     init(sessions: SessionManager) {
         self.sessions = sessions
@@ -28,7 +29,11 @@ final class SidebarViewController: NSViewController {
         table.allowsEmptySelection = true
         table.allowsMultipleSelection = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sessions"))
-        column.width = 330
+        // Width is a placeholder; viewDidLayout keeps it matched to the visible
+        // sidebar. A column wider than the sidebar pushes the trailing shortcut
+        // hint off-screen until the user drags the divider past it.
+        column.minWidth = 60
+        column.width = 170
         table.addTableColumn(column)
         table.dataSource = self
         table.delegate = self
@@ -41,7 +46,9 @@ final class SidebarViewController: NSViewController {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
+        scroll.hasHorizontalScroller = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
+        self.scrollView = scroll
         visualEffect.addSubview(scroll)
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
@@ -51,6 +58,15 @@ final class SidebarViewController: NSViewController {
         ])
 
         view = visualEffect
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard let column = tableView.tableColumns.first else { return }
+        let width = scrollView.contentSize.width
+        if width > 0, abs(column.width - width) > 0.5 {
+            column.width = width
+        }
     }
 
     func reload() {
