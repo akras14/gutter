@@ -136,21 +136,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
             }
         }
 
-        // Ask for a text editor first (these two are Swift-overlay APIs that
-        // Compat.swift stubs to nil under the CommandLineTools toolchain, so
-        // today this always falls through to the plain open below).
-        let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension)
-            ?? NSWorkspace.shared.defaultTextEditor
-        if let editor {
-            NSWorkspace.shared.open([url], withApplicationAt: editor,
-                                    configuration: NSWorkspace.OpenConfiguration())
-            return
+        // `open -t` is the system's default text editor. It has to go through
+        // /usr/bin/open: nothing claims `.ghostty` (its UTI resolves to a
+        // dynamic type under public.data), so NSWorkspace.open pops the "no
+        // application set to open the document" panel, and NSWorkspace's app
+        // lookups return nil from inside this bundle even where the same call
+        // resolves fine in a plain command-line binary.
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-t", url.path]
+        if (try? open.run()) != nil {
+            open.waitUntilExit()
+            if open.terminationStatus == 0 { return }
         }
-        // No app claims the file (`config` has no extension at all): show it
-        // in Finder rather than leaving the menu item looking broken.
-        if !NSWorkspace.shared.open(url) {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
+        // No text editor at all: show the file in Finder rather than leaving
+        // the menu item looking broken.
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     @objc func reloadConfigFile(_ sender: Any?) {
