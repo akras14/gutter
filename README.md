@@ -18,6 +18,28 @@ keybinds are loaded from
 
 See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, layout, gotchas.
 
+## Why this exists
+
+Ghostty is fast and has no vertical tabs. iTerm2 has vertical tabs and is not
+Ghostty. Gutter is the overlap: ghostty's core and renderer, driven by a sidebar
+of full-height sessions instead of a horizontal tab bar.
+
+That gap is permanent, not pending. Ghostty declined vertical tabs in
+[discussion #2549](https://github.com/ghostty-org/ghostty/discussions/2549),
+closed and locked on 2026-03-13 - custom tab bars conflict with ghostty's
+preference for native platform UI, and the maintainer points people at forks
+instead.
+
+It also began as a question: can a separate app embed libghostty and drive it?
+Yes, in ~700 lines of AppKit. Gutter is that experiment.
+
+**Not a fork.** Gutter links the released `libghostty` static library and brings
+its own AppKit shell. Following upstream means auditing one file
+(`GhosttyBridge`) for API drift, not rebasing a patched copy of ghostty's source.
+
+**Not a product.** No splits, no scrollback search, no session restore, no test
+suite. For a full-featured terminal, use Ghostty or iTerm2.
+
 ## Architecture
 
 Runtime ownership, top to bottom:
