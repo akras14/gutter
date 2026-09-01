@@ -16,6 +16,29 @@ keybinds are loaded from
 
 See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, layout, gotchas.
 
+## Architecture
+
+Runtime ownership, top to bottom:
+
+```
+main.swift            process setup: GHOSTTY_RESOURCES_DIR, ghostty_init, keybind overrides
+└─ AppDelegate        app lifecycle + menu actions
+   ├─ Ghostty.App     libghostty runtime + config (from Vendor/)
+   ├─ GhosttyBridge   the only place that knows ghostty's notification names
+   ├─ SessionManager  the session list and which one is selected
+   └─ MainWindowController          window, toolbar, fullscreen chrome
+      └─ MainSplitViewController
+         ├─ SidebarViewController            one table row per session
+         └─ TerminalContainerViewController  hosts the selected SurfaceView
+```
+
+`SessionManager` is the model: it owns sessions and holds no AppKit policy.
+`MainWindowController` owns every session-to-UI reaction - sidebar reload, showing the
+selected surface, handing it first responder. `GhosttyBridge` translates libghostty
+notifications into session calls; it is the file to audit for API drift when ghostty is
+updated. A `Session` is a live `Ghostty.SurfaceView` plus sidebar state (title, activity
+dot) - the surface is the real terminal.
+
 ## Layout
 
 | Path | Purpose |
