@@ -46,6 +46,9 @@ final class Session {
         return secondary
     }
 
+    /// Pending debounced branch check. See `SessionManager.scheduleBranchCheck`.
+    fileprivate var branchCheck: DispatchWorkItem?
+
     fileprivate init(view: Ghostty.SurfaceView) {
         self.id = view.id
         self.view = view
@@ -90,6 +93,9 @@ final class SessionManager {
             .sink { [weak self] title in
                 session.title = title
                 self?.onListChanged?()
+                // A retitle means the shell ran something, which is the only
+                // hint we get that the branch may have moved.
+                self?.scheduleBranchCheck(session)
             }
 
         // Working directory, for the sidebar's folder + branch line.
@@ -128,12 +134,30 @@ final class SessionManager {
         session.folder = pwd.map { $0 == NSHomeDirectory() ? "~" : ($0 as NSString).lastPathComponent }
         session.branch = nil
         onListChanged?()
+        checkBranch(session)
+    }
 
-        guard let pwd else { return }
+    /// `git switch` moves the branch without moving the directory, so pwd
+    /// alone would leave the sidebar showing the old branch forever. The shell
+    /// redraws its prompt right after, which retitles the surface - that's the
+    /// signal. Debounced, because titles arrive in bursts (a command starting,
+    /// then the prompt) and each check costs a git process. Kept short: the
+    /// vendored `setTitle` already sits on the event for 75ms, and past about
+    /// 200ms the sidebar visibly lags the `git switch` that caused it.
+    private func scheduleBranchCheck(_ session: Session) {
+        session.branchCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.checkBranch(session) }
+        session.branchCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
+    }
+
+    private func checkBranch(_ session: Session) {
+        session.branchCheck?.cancel()
+        guard let pwd = session.pwd else { return }
         DispatchQueue.global(qos: .utility).async {
             let branch = Self.branch(in: pwd)
             DispatchQueue.main.async { [weak self] in
-                guard let self, session.pwd == pwd,
+                guard let self, session.pwd == pwd, session.branch != branch,
                       self.sessions.contains(where: { $0 === session }) else { return }
                 session.branch = branch
                 self.onListChanged?()
@@ -192,6 +216,7 @@ final class SessionManager {
 
     func remove(_ session: Session) {
         cancellables[session.id] = nil
+        session.branchCheck?.cancel()
         session.view.removeFromSuperview()
 
         if let idx = sessions.firstIndex(where: { $0 === session }) {
