@@ -47,9 +47,11 @@ enum MainMenu {
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        let sidebar = viewMenu.addItem(withTitle: "Toggle Sidebar",
-                                       action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
-        sidebar.keyEquivalentModifierMask = [.command, .control]
+        // cmd-b, matching VS Code and Zed: the sidebar is imitating theirs.
+        // Not the ctrl-cmd-s this started with - one binding, and an NSMenuItem
+        // holds only one key equivalent anyway.
+        viewMenu.addItem(withTitle: "Toggle Sidebar",
+                         action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
         // No explicit target: the responder chain delivers this to MainSplitViewController.
         viewMenu.addItem(.separator())
         for i in 1...9 {
