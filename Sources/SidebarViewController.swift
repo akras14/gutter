@@ -7,6 +7,11 @@ final class SidebarViewController: NSViewController {
     private var tableView: NSTableView!
     private var scrollView: NSScrollView!
     private var lastFittedWidth: CGFloat = 0
+    /// Row being renamed, and a reload that arrived while it was. A shell title
+    /// update reloads the table, which would tear the field editor out from
+    /// under the user mid-edit; hold it until the edit finishes.
+    private var renamingRow: Int?
+    private var pendingReload = false
 
     init(sessions: SessionManager) {
         self.sessions = sessions
@@ -40,6 +45,7 @@ final class SidebarViewController: NSViewController {
         table.delegate = self
         table.target = self
         table.action = #selector(rowClicked(_:))
+        table.doubleAction = #selector(rowDoubleClicked(_:))
         self.tableView = table
 
         let scroll = NSScrollView()
@@ -77,6 +83,10 @@ final class SidebarViewController: NSViewController {
 
     func reload() {
         guard isViewLoaded else { return }
+        guard renamingRow == nil else {
+            pendingReload = true
+            return
+        }
         tableView.reloadData()
         syncSelectionRow()
     }
@@ -98,6 +108,59 @@ final class SidebarViewController: NSViewController {
         guard row >= 0, row < sessions.sessions.count else { return }
         sessions.select(sessions.sessions[row])
     }
+
+    @objc private func rowDoubleClicked(_ sender: Any?) {
+        beginRename(row: tableView.clickedRow)
+    }
+
+    /// Entry point for the Rename Tab menu item.
+    func beginRenameSelected() {
+        guard let selected = sessions.selected,
+              let row = sessions.sessions.firstIndex(where: { $0 === selected }) else { return }
+        beginRename(row: row)
+    }
+
+    private func beginRename(row: Int) {
+        guard renamingRow == nil, row >= 0, row < sessions.sessions.count else { return }
+        tableView.scrollRowToVisible(row)
+        guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? SessionCellView else { return }
+        renamingRow = row
+        cell.beginRename(delegate: self)
+    }
+
+    private func finishRename(field: NSTextField, commit: Bool) {
+        // endRename resigns first responder, which fires controlTextDidEndEditing
+        // a second time. Clearing the row first makes the re-entry a no-op.
+        guard let row = renamingRow else { return }
+        renamingRow = nil
+
+        let name = field.stringValue
+        (field.superview as? SessionCellView)?.endRename()
+        if commit, row < sessions.sessions.count {
+            sessions.rename(sessions.sessions[row], to: name)
+        }
+        // The terminal always owns focus in this app; without this the table
+        // keeps first responder and keystrokes go nowhere.
+        if let selected = sessions.selected {
+            view.window?.makeFirstResponder(selected.view)
+        }
+        pendingReload = false
+        reload()
+    }
+}
+
+extension SidebarViewController: NSTextFieldDelegate {
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        finishRename(field: field, commit: true)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard commandSelector == #selector(NSResponder.cancelOperation(_:)),
+              let field = control as? NSTextField else { return false }
+        finishRename(field: field, commit: false)
+        return true
+    }
 }
 
 extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
@@ -115,7 +178,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             cell = SessionCellView()
             cell.identifier = cellID
         }
-        cell.configure(title: session.title, active: session.hasActivity, shortcut: row < 9 ? "⌘\(row + 1)" : "")
+        cell.configure(title: session.displayTitle, active: session.hasActivity, shortcut: row < 9 ? "⌘\(row + 1)" : "")
         return cell
     }
 
@@ -172,13 +235,42 @@ final class SessionCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Turn the title label into an editable field in place. The shortcut hint
+    /// hides for the duration - it reads as part of the field otherwise.
+    func beginRename(delegate: NSTextFieldDelegate) {
+        label.delegate = delegate
+        label.isEditable = true
+        label.isSelectable = true
+        label.isBezeled = true
+        label.bezelStyle = .roundedBezel
+        label.drawsBackground = true
+        label.backgroundColor = .textBackgroundColor
+        // Selected rows draw the label white, which is invisible on the field's
+        // own background.
+        label.textColor = .labelColor
+        hint.isHidden = true
+        window?.makeFirstResponder(label)
+    }
+
+    func endRename() {
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.delegate = nil
+        hint.isHidden = hint.stringValue.isEmpty
+        applyTextColors()
+    }
+
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet {
-            label.textColor = backgroundStyle == .emphasized ? .white : .labelColor
-            hint.textColor = backgroundStyle == .emphasized
-                ? .white.withAlphaComponent(0.7)
-                : .secondaryLabelColor
-        }
+        didSet { applyTextColors() }
+    }
+
+    private func applyTextColors() {
+        label.textColor = backgroundStyle == .emphasized ? .white : .labelColor
+        hint.textColor = backgroundStyle == .emphasized
+            ? .white.withAlphaComponent(0.7)
+            : .secondaryLabelColor
     }
 }
 

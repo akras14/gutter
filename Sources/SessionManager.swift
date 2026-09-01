@@ -6,8 +6,14 @@ import GhosttyKit
 final class Session {
     let id: UUID
     let view: Ghostty.SurfaceView
+    /// What the shell reports. Keeps updating even while a custom title is set,
+    /// so clearing the custom one falls back to something current.
     var title: String = ""
+    /// Set by the user via rename; wins over the shell's title until cleared.
+    var customTitle: String?
     var hasActivity: Bool = false
+
+    var displayTitle: String { customTitle ?? title }
 
     fileprivate init(view: Ghostty.SurfaceView) {
         self.id = view.id
@@ -73,6 +79,14 @@ final class SessionManager {
 
         select(session)
         return session
+    }
+
+    /// An empty or blank name clears the override and hands the row back to
+    /// the shell's own title.
+    func rename(_ session: Session, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        session.customTitle = trimmed.isEmpty ? nil : trimmed
+        onListChanged?()
     }
 
     func select(_ session: Session?) {

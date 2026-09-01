@@ -20,6 +20,10 @@ enum MainMenu {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Tab",
                          action: #selector(AppDelegate.newTab(_:)), keyEquivalent: "t").target = target
+        let rename = fileMenu.addItem(withTitle: "Rename Tab...",
+                                      action: #selector(AppDelegate.renameTab(_:)), keyEquivalent: "R")
+        rename.keyEquivalentModifierMask = [.command, .shift]
+        rename.target = target
         fileMenu.addItem(withTitle: "Close Tab",
                          action: #selector(AppDelegate.closeTab(_:)), keyEquivalent: "w").target = target
         fileItem.submenu = fileMenu
