@@ -22,9 +22,50 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
+	<!-- TCC usage strings. A terminal spawns child processes that inherit
+	     Gutter's TCC identity, so a CLI tool asking for any of these prompts
+	     the user as Gutter. Without the matching key here macOS kills the
+	     child instead of prompting - hence the whole ghostty-sized list.
+	     Wording mirrors ghostty's ("A program running within ..."). -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within Gutter would like to use AppleScript.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running within Gutter would like to use Bluetooth.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within Gutter would like to access your Calendar.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running within Gutter would like to use the camera.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running within Gutter would like to access your Contacts.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>A program running within Gutter would like to access files on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>A program running within Gutter would like to access files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>A program running within Gutter would like to access files in your Downloads folder.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within Gutter would like to access the local network.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running within Gutter would like to access your location information.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running within Gutter would like to use your microphone.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>A program running within Gutter would like to access motion data.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>A program running within Gutter would like to access files on a network volume.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running within Gutter would like to access your Photo Library.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within Gutter would like to access your reminders.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>A program running within Gutter would like to access files on a removable volume.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running within Gutter would like to use speech recognition.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A program running within Gutter requires elevated privileges.</string>
 </dict>
 </plist>
