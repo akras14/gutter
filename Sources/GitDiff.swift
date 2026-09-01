@@ -24,7 +24,7 @@ enum GitDiff {
     }
 
     struct Row {
-        enum Kind {
+        enum Kind: Equatable {
             /// Same line on both sides.
             case equal
             /// Different text on both sides (paired removal + addition).
