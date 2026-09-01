@@ -96,6 +96,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         windowController.showGitDiff(sender)
     }
 
+    private var shortcutsWindow: ShortcutsWindowController?
+
+    @objc func showShortcuts(_ sender: Any?) {
+        let controller = shortcutsWindow ?? ShortcutsWindowController()
+        shortcutsWindow = controller
+        controller.present()
+    }
+
     @objc func renameTab(_ sender: Any?) {
         windowController.beginRenameSelectedTab()
     }
