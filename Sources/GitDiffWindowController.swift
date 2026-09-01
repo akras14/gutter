@@ -56,6 +56,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "Uncommitted Changes"
+        // The controller outlives the close - cmd-w hides this window and the
+        // shortcut brings the same one back - so the window must not be
+        // released out from under that reference.
+        window.isReleasedWhenClosed = false
         self.init(window: window)
 
         pathLabel.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
