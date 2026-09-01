@@ -30,7 +30,10 @@ final class SidebarViewController: NSViewController {
         table.headerView = nil
         table.style = .sourceList
         table.selectionHighlightStyle = .regular
-        table.rowHeight = 30
+        // Two lines per row. Fixed rather than per-row: a session's second line
+        // comes and goes as the shell reports a title, and rows that changed
+        // height under the pointer looked ragged.
+        table.rowHeight = 44
         table.backgroundColor = .clear
         table.allowsEmptySelection = true
         table.allowsMultipleSelection = false
@@ -125,7 +128,10 @@ final class SidebarViewController: NSViewController {
         tableView.scrollRowToVisible(row)
         guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? SessionCellView else { return }
         renamingRow = row
-        cell.beginRename(delegate: self)
+        // Seed the field with the name itself, never the folder + branch line
+        // the row may be showing in its place.
+        let session = sessions.sessions[row]
+        cell.beginRename(seed: session.customTitle ?? session.title, delegate: self)
     }
 
     private func finishRename(field: NSTextField, commit: Bool) {
@@ -178,7 +184,10 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             cell = SessionCellView()
             cell.identifier = cellID
         }
-        cell.configure(title: session.displayTitle, active: session.hasActivity, shortcut: row < 9 ? "⌘\(row + 1)" : "")
+        cell.configure(primary: session.primaryLine,
+                       secondary: session.secondaryLine,
+                       active: session.hasActivity,
+                       shortcut: row < 9 ? "⌘\(row + 1)" : "")
         return cell
     }
 
@@ -192,18 +201,27 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-/// Title + activity dot + shortcut hint for one sidebar row.
+/// Two lines per session - a stable one over a live one - plus the activity
+/// dot and the shortcut hint.
 final class SessionCellView: NSTableCellView {
     private let dot = ActivityDotView()
     private let label = NSTextField(labelWithString: "")
+    private let subtitle = NSTextField(labelWithString: "")
     private let hint = NSTextField(labelWithString: "")
+    /// Only one of these is ever active: the pair sits astride the row's centre
+    /// when there are two lines, and a lone title sits on it.
+    private var stackedConstraint: NSLayoutConstraint!
+    private var centeredConstraint: NSLayoutConstraint!
 
     init() {
         super.init(frame: .zero)
-        label.lineBreakMode = .byTruncatingTail
-        label.usesSingleLineMode = true
+        for field in [label, subtitle] {
+            field.lineBreakMode = .byTruncatingTail
+            field.usesSingleLineMode = true
+            field.translatesAutoresizingMaskIntoConstraints = false
+        }
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
-        label.translatesAutoresizingMaskIntoConstraints = false
+        subtitle.font = .systemFont(ofSize: NSFont.systemFontSize - 1)
         hint.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 2, weight: .regular)
         hint.translatesAutoresizingMaskIntoConstraints = false
         hint.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -211,33 +229,52 @@ final class SessionCellView: NSTableCellView {
         dot.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dot)
         addSubview(label)
+        addSubview(subtitle)
         addSubview(hint)
+
+        stackedConstraint = label.bottomAnchor.constraint(equalTo: centerYAnchor, constant: 1)
+        centeredConstraint = label.centerYAnchor.constraint(equalTo: centerYAnchor)
+
         NSLayoutConstraint.activate([
             dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            dot.centerYAnchor.constraint(equalTo: centerYAnchor),
+            dot.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 7),
             dot.heightAnchor.constraint(equalToConstant: 7),
             label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(equalTo: hint.leadingAnchor, constant: -6),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            subtitle.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+            subtitle.trailingAnchor.constraint(equalTo: label.trailingAnchor),
+            subtitle.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
             hint.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            hint.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hint.centerYAnchor.constraint(equalTo: label.centerYAnchor),
+            stackedConstraint,
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func configure(title: String, active: Bool, shortcut: String) {
-        label.stringValue = title
+    func configure(primary: String, secondary: String, active: Bool, shortcut: String) {
+        label.stringValue = primary
+        subtitle.stringValue = secondary
+        setTwoLine(!secondary.isEmpty)
         hint.stringValue = shortcut
         hint.isHidden = shortcut.isEmpty
         dot.isActive = active
+        applyTextColors()
         needsLayout = true
+    }
+
+    private func setTwoLine(_ twoLine: Bool) {
+        subtitle.isHidden = !twoLine
+        // Deactivate first: both active at once is an unsatisfiable pair.
+        (twoLine ? centeredConstraint : stackedConstraint)?.isActive = false
+        (twoLine ? stackedConstraint : centeredConstraint)?.isActive = true
     }
 
     /// Turn the title label into an editable field in place. The shortcut hint
     /// hides for the duration - it reads as part of the field otherwise.
-    func beginRename(delegate: NSTextFieldDelegate) {
+    func beginRename(seed: String, delegate: NSTextFieldDelegate) {
+        label.stringValue = seed
         label.delegate = delegate
         label.isEditable = true
         label.isSelectable = true
@@ -267,8 +304,12 @@ final class SessionCellView: NSTableCellView {
     }
 
     private func applyTextColors() {
-        label.textColor = backgroundStyle == .emphasized ? .white : .labelColor
-        hint.textColor = backgroundStyle == .emphasized
+        let emphasized = backgroundStyle == .emphasized
+        label.textColor = emphasized ? .white : .labelColor
+        subtitle.textColor = emphasized
+            ? .white.withAlphaComponent(0.7)
+            : .secondaryLabelColor
+        hint.textColor = emphasized
             ? .white.withAlphaComponent(0.7)
             : .secondaryLabelColor
     }
