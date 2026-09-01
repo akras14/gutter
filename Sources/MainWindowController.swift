@@ -12,7 +12,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private let splitVC: MainSplitViewController
     private let sessions: SessionManager
     private var savedToolbar: NSToolbar?
-    private var topEdgeArea: NSTrackingArea?
+    private var pointerMonitor: Any?
+    private var savedAcceptsMouseMoved: Bool?
 
     init(sessions: SessionManager) {
         let split = MainSplitViewController(sessions: sessions)
@@ -104,7 +105,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 }
 
 // Fullscreen chrome: the top bar (toolbar) is removed for the duration of
-// native fullscreen and only slides back while the pointer is in the top strip
+// native fullscreen and only slides back while the pointer is at the top edge
 // of the screen. Exiting fullscreen always restores it.
 extension MainWindowController {
     func windowDidBecomeKey(_ notification: Notification) {
@@ -116,7 +117,14 @@ extension MainWindowController {
               let session = sessions.selected else { return }
         window?.makeFirstResponder(session.view)
     }
-    private static let topEdgeHeight: CGFloat = 40
+
+    /// Show the bar once the pointer is this close to the top of the screen.
+    private static let revealEdge: CGFloat = 6
+    /// Hide it again only once the pointer is this far below the revealed bar.
+    /// The gap between the two is deliberate: showing the bar shrinks the
+    /// content view, and without hysteresis the pointer would fall back out of
+    /// the reveal zone the instant the bar appeared, flickering forever.
+    private static let hideSlack: CGFloat = 8
 
     func windowWillEnterFullScreen(_ notification: Notification) {
         // Drop it before the transition zooms so it never floats over the content.
@@ -125,54 +133,61 @@ extension MainWindowController {
     }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
-        installTopEdgeTracking()
+        startPointerTracking()
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
-        removeTopEdgeTracking()
+        stopPointerTracking()
         window?.toolbar = savedToolbar
         savedToolbar = nil
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        // Only our top-strip tracking area may reveal the bar. Subviews with
-        // their own tracking areas (the terminal surface tracks the mouse
-        // across its entire frame and forwards the event via super) bubble
-        // these events up the responder chain to us; pass those along.
-        guard event.trackingArea === topEdgeArea else {
-            super.mouseEntered(with: event)
-            return
+    // The reveal zone is measured in *screen* coordinates, not in an
+    // NSTrackingArea on the content view. A tracking area moves with the
+    // content, and toggling the toolbar resizes the content, so the area slid
+    // out from under a stationary pointer and the enter/exit pair repeated
+    // without end.
+    private func startPointerTracking() {
+        guard pointerMonitor == nil else { return }
+        pointerMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        ) { [weak self] event in
+            self?.updateFullScreenBar()
+            return event
         }
-        guard let window, window.styleMask.contains(.fullScreen), window.toolbar == nil,
-              let toolbar = savedToolbar else { return }
-        window.toolbar = toolbar
+        // Without this the window drops mouse-moved events and the monitor
+        // above never sees a pointer that only hovers.
+        savedAcceptsMouseMoved = window?.acceptsMouseMovedEvents
+        window?.acceptsMouseMovedEvents = true
+        updateFullScreenBar()
     }
 
-    override func mouseExited(with event: NSEvent) {
-        guard event.trackingArea === topEdgeArea else {
-            super.mouseExited(with: event)
-            return
+    private func stopPointerTracking() {
+        if let monitor = pointerMonitor {
+            NSEvent.removeMonitor(monitor)
+            pointerMonitor = nil
         }
-        guard let window, window.styleMask.contains(.fullScreen), window.toolbar != nil else { return }
-        window.toolbar = nil
+        if let saved = savedAcceptsMouseMoved {
+            window?.acceptsMouseMovedEvents = saved
+            savedAcceptsMouseMoved = nil
+        }
     }
 
-    private func installTopEdgeTracking() {
-        guard let content = window?.contentView, topEdgeArea == nil else { return }
-        let height = Self.topEdgeHeight
-        let area = NSTrackingArea(
-            rect: NSRect(x: 0, y: content.bounds.maxY - height, width: content.bounds.width, height: height),
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil)
-        content.addTrackingArea(area)
-        topEdgeArea = area
-    }
+    private func updateFullScreenBar() {
+        guard let window, window.styleMask.contains(.fullScreen),
+              let screen = window.screen else { return }
+        let pointerY = NSEvent.mouseLocation.y
+        let screenTop = screen.frame.maxY
 
-    private func removeTopEdgeTracking() {
-        if let area = topEdgeArea {
-            window?.contentView?.removeTrackingArea(area)
-            topEdgeArea = nil
+        if window.toolbar == nil {
+            guard let toolbar = savedToolbar, pointerY >= screenTop - Self.revealEdge else { return }
+            window.toolbar = toolbar
+        } else {
+            // Measure the bar rather than assume its height: the top of the
+            // content view in screen coordinates is exactly where it ends.
+            guard let content = window.contentView else { return }
+            let contentTop = window.convertPoint(toScreen: NSPoint(x: 0, y: content.frame.maxY)).y
+            if pointerY < contentTop - Self.hideSlack { window.toolbar = nil }
         }
     }
 }
