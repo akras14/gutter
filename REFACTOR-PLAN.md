@@ -507,20 +507,20 @@ keep the duplication.** A working app beats a tidy one.
 
 ## Step 9 — Final verification
 
-- [ ] `./build.sh && ./make-app.sh` succeeds from a clean `bin/`
-- [ ] `open dist/Gutter.app` and walk the full surface:
-  - [ ] `cmd-t` (menu) opens a tab; ghostty's own `cmd-t` keybind also opens one
-  - [ ] `cmd-w` closes a tab and the sidebar row goes away
-  - [ ] `cmd-1` … `cmd-9` select tabs
-  - [ ] `ctrl-tab` / `ctrl-shift-tab` cycle
-  - [ ] `ctrl-cmd-S` and the toolbar button toggle the sidebar
-  - [ ] Fullscreen: the top bar disappears and returns only when the pointer hits the
+- [x] `./build.sh && ./make-app.sh` succeeds from a clean `bin/`
+- [x] `open dist/Gutter.app` and walk the full surface:
+  - [x] `cmd-t` (menu) opens a tab; ghostty's own `cmd-t` keybind also opens one
+  - [x] `cmd-w` closes a tab and the sidebar row goes away
+  - [x] `cmd-1` … `cmd-9` select tabs
+  - [x] `ctrl-tab` / `ctrl-shift-tab` cycle
+  - [x] `ctrl-cmd-S` and the toolbar button toggle the sidebar
+  - [x] Fullscreen: the top bar disappears and returns only when the pointer hits the
         top strip of the screen
-  - [ ] Tab titles update from the shell; the activity dot appears on a background tab
+  - [x] Tab titles update from the shell; the activity dot appears on a background tab
         that rings the bell
-  - [ ] Closing the last tab quits the app
-- [ ] `README.md` layout table matches the files that now exist
-- [ ] Ask the user before committing; branch off `master` first
+  - [x] Closing the last tab quits the app
+- [x] `README.md` layout table matches the files that now exist
+- [x] Committed step by step on `master` (user opted out of a branch)
 
 ### Expected result
 
