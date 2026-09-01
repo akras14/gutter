@@ -104,6 +104,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         controller.present()
     }
 
+    // MARK: Config actions
+    //
+    // Not the vendored `Ghostty.App.openConfig()`: that opens whatever
+    // `ghostty_config_open_path()` returns (~/.config/ghostty/config), which
+    // is not the file Gutter loads when Ghostty.app's own config exists.
+
+    /// The file the Config menu edits: the one libghostty loaded, or the
+    /// default path it would search if that file doesn't exist yet.
+    private static var editableConfigPath: String {
+        FileManager.default.fileExists(atPath: configPath)
+            ? configPath
+            : ("~/.config/ghostty/config" as NSString).expandingTildeInPath
+    }
+
+    @objc func openConfigFile(_ sender: Any?) {
+        let url = URL(fileURLWithPath: Self.editableConfigPath)
+
+        // Nothing to edit on a machine with no Ghostty config at all; make an
+        // empty one (and its directory) so the editor has a file to open.
+        if !FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try "# Ghostty configuration. See https://ghostty.org/docs/config\n".write(
+                    to: url, atomically: true, encoding: .utf8)
+            } catch {
+                Self.alert(title: "Could not create the config file",
+                           message: "\(url.path)\n\n\(error.localizedDescription)")
+                return
+            }
+        }
+
+        // Ask for a text editor first (these two are Swift-overlay APIs that
+        // Compat.swift stubs to nil under the CommandLineTools toolchain, so
+        // today this always falls through to the plain open below).
+        let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension)
+            ?? NSWorkspace.shared.defaultTextEditor
+        if let editor {
+            NSWorkspace.shared.open([url], withApplicationAt: editor,
+                                    configuration: NSWorkspace.OpenConfiguration())
+            return
+        }
+        // No app claims the file (`config` has no extension at all): show it
+        // in Finder rather than leaving the menu item looking broken.
+        if !NSWorkspace.shared.open(url) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
+    @objc func reloadConfigFile(_ sender: Any?) {
+        ghostty.reloadConfig()
+        // reloadConfig() only logs a bad config, so surface the diagnostics
+        // here - a silent no-op after editing the file is worse than an alert.
+        let errors = ghostty.config.errors
+        if !errors.isEmpty {
+            Self.alert(title: "Ghostty config errors", message: errors.joined(separator: "\n"))
+        }
+    }
+
+    private static func alert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
+    }
+
     @objc func renameTab(_ sender: Any?) {
         windowController.beginRenameSelectedTab()
     }

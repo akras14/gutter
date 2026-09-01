@@ -11,6 +11,15 @@ enum MainMenu {
         appMenu.addItem(withTitle: "About Gutter",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        // The config is ghostty's own file, shared with Ghostty.app when it's
+        // installed - ⌘, and ⇧⌘, are the same keys ghostty binds for them.
+        appMenu.addItem(withTitle: "Open Config...",
+                        action: #selector(AppDelegate.openConfigFile(_:)), keyEquivalent: ",").target = target
+        let reload = appMenu.addItem(withTitle: "Reload Config",
+                                     action: #selector(AppDelegate.reloadConfigFile(_:)), keyEquivalent: ",")
+        reload.keyEquivalentModifierMask = [.command, .shift]
+        reload.target = target
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Gutter", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit Gutter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
