@@ -34,6 +34,14 @@ final class MainSplitViewController: NSSplitViewController {
         sidebarVC?.reload()
     }
 
+    /// Renaming edits a sidebar row, so the sidebar has to be on screen.
+    func beginRenameSelectedTab() {
+        if let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed {
+            sidebarItem.isCollapsed = false
+        }
+        sidebarVC?.beginRenameSelected()
+    }
+
     func setSidebarWidth(_ width: CGFloat) {
         splitView.setPosition(width, ofDividerAt: 0)
     }

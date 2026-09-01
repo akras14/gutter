@@ -72,6 +72,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     required init?(coder: NSCoder) { fatalError("not supported") }
 
+    func beginRenameSelectedTab() {
+        splitVC.beginRenameSelectedTab()
+    }
+
     // MARK: Toolbar
 
     private static let sidebarID = NSToolbarItem.Identifier("sidebar")

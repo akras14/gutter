@@ -83,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         sessions.closeSelected()
     }
 
+    @objc func renameTab(_ sender: Any?) {
+        windowController.beginRenameSelectedTab()
+    }
+
     @objc func selectTab(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else { return }
         sessions.select(index: item.tag)
