@@ -54,3 +54,22 @@ final class GhosttyBridge {
         }
     }
 }
+
+extension GhosttyBridge {
+    /// Fire one of ghostty's named keybind actions against a surface.
+    ///
+    /// libghostty exposes no typed C API for most features - search included
+    /// (`ghostty.h` has the `search_*` *actions* it sends back, but no
+    /// `ghostty_surface_search_*` to call). The generic binding-action entry
+    /// point is the only way in, so the action name is the API.
+    @discardableResult
+    static func perform(_ action: String, on view: Ghostty.SurfaceView) -> Bool {
+        guard let surface = view.surface else { return false }
+        let ok = ghostty_surface_binding_action(
+            surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+        if !ok {
+            AppDelegate.logger.warning("action failed action=\(action)")
+        }
+        return ok
+    }
+}

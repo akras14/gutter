@@ -25,6 +25,26 @@ enum MainMenu {
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        let findItem = NSMenuItem()
+        findItem.title = "Find"
+        let findMenu = NSMenu(title: "Find")
+        findMenu.addItem(withTitle: "Find...",
+                         action: #selector(AppDelegate.findInTerminal(_:)), keyEquivalent: "f").target = target
+        findMenu.addItem(withTitle: "Find Next",
+                         action: #selector(AppDelegate.findNextMatch(_:)), keyEquivalent: "g").target = target
+        let findPrev = findMenu.addItem(withTitle: "Find Previous",
+                                        action: #selector(AppDelegate.findPreviousMatch(_:)), keyEquivalent: "G")
+        findPrev.keyEquivalentModifierMask = [.command, .shift]
+        findPrev.target = target
+        findMenu.addItem(withTitle: "Use Selection for Find",
+                         action: #selector(AppDelegate.useSelectionForFind(_:)), keyEquivalent: "e").target = target
+        findItem.submenu = findMenu
+        editMenu.addItem(findItem)
+        editItem.submenu = editMenu
+        main.addItem(editItem)
+
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         let sidebar = viewMenu.addItem(withTitle: "Toggle Sidebar",
