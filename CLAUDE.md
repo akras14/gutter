@@ -34,6 +34,10 @@ no build-script change.
   `AppDelegate` actions) and ghostty's own core keybinds (config -> libghostty ->
   `NSNotification` -> `GhosttyBridge`). `cmd-t` travels both, so a broken bridge can
   still look like a working app - test `cmd-w` too.
+- **A new keybind lands in three places.** `Sources/MainMenu.swift` (the menu item),
+  `Sources/ShortcutsWindowController.swift` (the ⌘? panel, written by hand), and the
+  Keybinds table in `README.md`. All three are hand-maintained - nothing generates them
+  from the menu - so a shortcut added to only one of them silently goes undocumented.
 - **Keep the comments.** They record hard-won fixes: fullscreen bar behavior, the first
   keystroke after launch, the `command` config quirk. Move them with the code they
   explain; don't drop them as noise.
