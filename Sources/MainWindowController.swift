@@ -11,10 +11,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     private let splitVC: MainSplitViewController
     private let sessions: SessionManager
-    private var savedToolbar: NSToolbar?
-    private var pointerMonitor: Any?
     private var diffWindow: GitDiffWindowController?
-    private var savedAcceptsMouseMoved: Bool?
 
     init(sessions: SessionManager) {
         let split = MainSplitViewController(sessions: sessions)
@@ -132,9 +129,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     }
 }
 
-// Fullscreen chrome: the top bar (toolbar) is removed for the duration of
-// native fullscreen and only slides back while the pointer is at the top edge
-// of the screen. Exiting fullscreen always restores it.
+// Fullscreen chrome: the top bar auto-hides for the duration of native
+// fullscreen and slides back when the pointer reaches the top edge.
 extension MainWindowController {
     func windowDidBecomeKey(_ notification: Notification) {
         // A key window with no view holding focus (fresh launch, focus lost
@@ -146,76 +142,20 @@ extension MainWindowController {
         window?.makeFirstResponder(session.view)
     }
 
-    /// Show the bar once the pointer is this close to the top of the screen.
-    private static let revealEdge: CGFloat = 6
-    /// Hide it again only once the pointer is this far below the revealed bar.
-    /// The gap between the two is deliberate: showing the bar shrinks the
-    /// content view, and without hysteresis the pointer would fall back out of
-    /// the reveal zone the instant the bar appeared, flickering forever.
-    private static let hideSlack: CGFloat = 8
-
-    func windowWillEnterFullScreen(_ notification: Notification) {
-        // Drop it before the transition zooms so it never floats over the content.
-        savedToolbar = window?.toolbar
-        window?.toolbar = nil
-    }
-
-    func windowDidEnterFullScreen(_ notification: Notification) {
-        startPointerTracking()
-    }
-
-    func windowWillExitFullScreen(_ notification: Notification) {
-        stopPointerTracking()
-        window?.toolbar = savedToolbar
-        savedToolbar = nil
-    }
-
-    // The reveal zone is measured in *screen* coordinates, not in an
-    // NSTrackingArea on the content view. A tracking area moves with the
-    // content, and toggling the toolbar resizes the content, so the area slid
-    // out from under a stationary pointer and the enter/exit pair repeated
-    // without end.
-    private func startPointerTracking() {
-        guard pointerMonitor == nil else { return }
-        pointerMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
-        ) { [weak self] event in
-            self?.updateFullScreenBar()
-            return event
-        }
-        // Without this the window drops mouse-moved events and the monitor
-        // above never sees a pointer that only hovers.
-        savedAcceptsMouseMoved = window?.acceptsMouseMovedEvents
-        window?.acceptsMouseMovedEvents = true
-        updateFullScreenBar()
-    }
-
-    private func stopPointerTracking() {
-        if let monitor = pointerMonitor {
-            NSEvent.removeMonitor(monitor)
-            pointerMonitor = nil
-        }
-        if let saved = savedAcceptsMouseMoved {
-            window?.acceptsMouseMovedEvents = saved
-            savedAcceptsMouseMoved = nil
-        }
-    }
-
-    private func updateFullScreenBar() {
-        guard let window, window.styleMask.contains(.fullScreen),
-              let screen = window.screen else { return }
-        let pointerY = NSEvent.mouseLocation.y
-        let screenTop = screen.frame.maxY
-
-        if window.toolbar == nil {
-            guard let toolbar = savedToolbar, pointerY >= screenTop - Self.revealEdge else { return }
-            window.toolbar = toolbar
-        } else {
-            // Measure the bar rather than assume its height: the top of the
-            // content view in screen coordinates is exactly where it ends.
-            guard let content = window.contentView else { return }
-            let contentTop = window.convertPoint(toScreen: NSPoint(x: 0, y: content.frame.maxY)).y
-            if pointerY < contentTop - Self.hideSlack { window.toolbar = nil }
-        }
+    // AppKit keeps a window's toolbar on screen in fullscreen unless the app
+    // asks otherwise, so ask: .autoHideToolbar makes the toolbar slide away
+    // with the menu bar and slide back on a pointer at the top edge, which is
+    // exactly the wanted behavior and is animated by the system.
+    //
+    // This replaces a hand-rolled version that swapped `window.toolbar` in and
+    // out while fullscreen. That churn broke the bar: re-attaching a toolbar
+    // mid-fullscreen left it without its items and at the wrong height, and the
+    // damaged toolbar was then restored on the way out. Don't reintroduce it.
+    //
+    // .autoHideToolbar is only legal alongside .fullScreen and .autoHideMenuBar.
+    func window(_ window: NSWindow,
+                willUseFullScreenPresentationOptions proposed: NSApplication.PresentationOptions)
+    -> NSApplication.PresentationOptions {
+        [proposed, .fullScreen, .autoHideMenuBar, .autoHideToolbar]
     }
 }
