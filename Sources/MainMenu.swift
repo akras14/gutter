@@ -57,6 +57,13 @@ enum MainMenu {
         viewMenu.addItem(withTitle: "Toggle Sidebar",
                          action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
         // No explicit target: the responder chain delivers this to MainSplitViewController.
+        // ctrl-cmd-shift-g would be the obvious pick, but VS Code opens source
+        // control with ctrl-shift-g and this window is the same idea; the
+        // toolbar button is unreachable in fullscreen, where the bar is hidden.
+        let diff = viewMenu.addItem(withTitle: "Show Uncommitted Changes",
+                                    action: #selector(AppDelegate.showGitDiff(_:)), keyEquivalent: "g")
+        diff.keyEquivalentModifierMask = [.control, .shift]
+        diff.target = target
         viewMenu.addItem(.separator())
         for i in 1...9 {
             let item = viewMenu.addItem(withTitle: "Select Tab \(i)",

@@ -79,8 +79,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         sessions.newSession()
     }
 
+    // cmd-w is a menu key equivalent, so it fires whichever window is key -
+    // including the diff window, which would otherwise have closed a terminal
+    // tab behind the user's back. Close the key window instead and hand focus
+    // back to the main one; only the main window closes a session.
     @objc func closeTab(_ sender: Any?) {
+        if let key = NSApp.keyWindow, key !== windowController.window {
+            key.performClose(sender)
+            windowController.window?.makeKeyAndOrderFront(nil)
+            return
+        }
         sessions.closeSelected()
+    }
+
+    @objc func showGitDiff(_ sender: Any?) {
+        windowController.showGitDiff(sender)
     }
 
     @objc func renameTab(_ sender: Any?) {
