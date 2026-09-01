@@ -95,4 +95,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     @objc func previousTab(_ sender: Any?) {
         sessions.cycle(-1)
     }
+
+    // MARK: Find actions
+    //
+    // Deliberately not named findNext:/findPrevious:: the vendored SurfaceView
+    // defines those selectors and sends `search:next` / `search:previous`,
+    // which sets the *needle* to the literal text "next" rather than moving
+    // between matches (`navigate_search:` is the action that navigates). Using
+    // distinct names keeps a stray responder-chain dispatch off that path.
+    // Everything else lands on searchState, which raises the find bar.
+
+    @objc func findInTerminal(_ sender: Any?) {
+        guard let view = sessions.selected?.view else { return }
+        GhosttyBridge.perform("start_search", on: view)
+    }
+
+    @objc func findNextMatch(_ sender: Any?) {
+        guard let view = sessions.selected?.view else { return }
+        GhosttyBridge.perform("navigate_search:next", on: view)
+    }
+
+    @objc func findPreviousMatch(_ sender: Any?) {
+        guard let view = sessions.selected?.view else { return }
+        GhosttyBridge.perform("navigate_search:previous", on: view)
+    }
+
+    @objc func useSelectionForFind(_ sender: Any?) {
+        guard let view = sessions.selected?.view else { return }
+        GhosttyBridge.perform("search_selection", on: view)
+    }
 }

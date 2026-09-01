@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import GhosttyKit
 
 /// Window shell: collapsible sidebar on the left, terminal surface on the right.
@@ -42,9 +43,12 @@ final class MainSplitViewController: NSSplitViewController {
     }
 }
 
-/// Hosts exactly the selected session's SurfaceView, pinned edge to edge.
+/// Hosts exactly the selected session's SurfaceView, pinned edge to edge,
+/// with the find bar floating over its top-right corner.
 final class TerminalContainerViewController: NSViewController {
     private(set) var current: Session?
+    private var findBar: FindBarView?
+    private var searchCancellable: AnyCancellable?
 
     override func loadView() {
         view = NSView()
@@ -54,6 +58,8 @@ final class TerminalContainerViewController: NSViewController {
     func show(_ session: Session?) {
         guard session !== current else { return }
         current?.view.removeFromSuperview()
+        removeFindBar()
+        searchCancellable = nil
         current = session
 
         guard let v = session?.view else { return }
@@ -65,6 +71,53 @@ final class TerminalContainerViewController: NSViewController {
             v.topAnchor.constraint(equalTo: view.topAnchor),
             v.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+
+        // The surface, not this controller, decides when the find bar exists:
+        // both the Find menu and ghostty's own start_search keybind end up
+        // setting searchState, and end_search clears it. Subscribing also
+        // restores an open bar when the user switches back to this session,
+        // since the state hangs off the SurfaceView.
+        searchCancellable = v.$searchState
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak v] state in
+                guard let self, let v, self.current?.view === v else { return }
+                if let state {
+                    self.showFindBar(state, on: v)
+                } else {
+                    self.removeFindBar()
+                }
+            }
+    }
+
+    private func showFindBar(_ state: Ghostty.SurfaceView.SearchState, on surface: Ghostty.SurfaceView) {
+        if let bar = findBar, bar.state === state {
+            bar.focusField()
+            return
+        }
+        removeFindBar()
+
+        let bar = FindBarView(surfaceView: surface, state: state)
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bar)
+        NSLayoutConstraint.activate([
+            bar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            bar.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+        ])
+        findBar = bar
+        bar.focusField()
+    }
+
+    private func removeFindBar() {
+        guard let bar = findBar else { return }
+        findBar = nil
+        // Hand focus back before the view goes away, or the window is left with
+        // a dead field editor as first responder and keystrokes fall on the
+        // floor until the user clicks the terminal.
+        let hadFocus = bar.holdsFocus
+        bar.removeFromSuperview()
+        if hadFocus, let v = current?.view {
+            view.window?.makeFirstResponder(v)
+        }
     }
 
     override func viewDidLayout() {
