@@ -6,6 +6,7 @@ final class SidebarViewController: NSViewController {
     private let sessions: SessionManager
     private var tableView: NSTableView!
     private var scrollView: NSScrollView!
+    private var lastFittedWidth: CGFloat = 0
 
     init(sessions: SessionManager) {
         self.sessions = sessions
@@ -62,11 +63,16 @@ final class SidebarViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        guard let column = tableView.tableColumns.first else { return }
+        // Keep the single column exactly as wide as the visible sidebar, or
+        // each row's trailing shortcut hint sits outside it and gets clipped.
+        // Let AppKit compute the fit: deriving it by hand from the clip view's
+        // width overshot by the source-list inset and intercell spacing, which
+        // was enough to cut the digit off "⌘1". Guarded on the clip width so a
+        // resize during layout can't feed back into another layout pass.
         let width = scrollView.contentSize.width
-        if width > 0, abs(column.width - width) > 0.5 {
-            column.width = width
-        }
+        guard width > 0, abs(width - lastFittedWidth) > 0.5 else { return }
+        lastFittedWidth = width
+        tableView.sizeLastColumnToFit()
     }
 
     func reload() {
