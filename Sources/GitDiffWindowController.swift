@@ -20,6 +20,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private var leftScroll = NSScrollView()
     private var rightScroll = NSScrollView()
     private var splitVC: NSSplitViewController!
+    private let mapView = DiffMapView()
 
     private var directory: String?
     private var changes: [GitDiff.FileChange] = []
@@ -30,6 +31,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private var loadToken = 0
     /// Guards the two scroll observers against echoing each other forever.
     private var syncingScroll = false
+    /// Row count and change blocks of the file on screen, for the map strip and
+    /// the next/previous-change jumps.
+    private var rowCount = 0
+    private var blocks: [DiffMapView.Block] = []
 
     // Meld's palette, roughly: red for what HEAD had, green for what the
     // worktree has, blue for a line that exists on both sides but changed.
@@ -39,6 +44,11 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private static let changedBG = NSColor.systemBlue.withAlphaComponent(0.13)
     private static let intralineBG = NSColor.systemBlue.withAlphaComponent(0.30)
     private static let fillerBG = NSColor.secondaryLabelColor.withAlphaComponent(0.08)
+    // The map strip is a few points wide, so its marks need full strength to
+    // read at all - the pane backgrounds above would vanish at that size.
+    private static let mapRemoved = NSColor.systemRed.withAlphaComponent(0.85)
+    private static let mapAdded = NSColor.systemGreen.withAlphaComponent(0.85)
+    private static let mapChanged = NSColor.systemBlue.withAlphaComponent(0.85)
 
     convenience init() {
         let window = NSWindow(
@@ -58,7 +68,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         refresh.keyEquivalent = "r"
         refresh.keyEquivalentModifierMask = [.command]
 
-        let header = NSStackView(views: [pathLabel, refresh])
+        let previous = navButton("chevron.up", "Previous Change (⌘[)", "[", #selector(previousChange(_:)))
+        let next = navButton("chevron.down", "Next Change (⌘])", "]", #selector(nextChange(_:)))
+
+        let header = NSStackView(views: [pathLabel, previous, next, refresh])
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
@@ -155,22 +168,26 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let left = stackedPane(title: paneTitle("HEAD"), scroll: leftScroll)
         let right = stackedPane(title: paneTitle("Working tree"), scroll: rightScroll)
 
+        // The map strip sits where the divider would be: it is the divider,
+        // plus every change in the file at a glance. Its top and bottom track
+        // the scroll views, not the container, so a mark lines up with the row
+        // it stands for rather than being offset by the pane titles.
+        mapView.translatesAutoresizingMaskIntoConstraints = false
+        mapView.onJump = { [weak self] fraction in self?.scrollPanes(toFraction: fraction) }
+
         let container = NSView()
-        let divider = NSBox()
-        divider.boxType = .separator
-        divider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(left)
-        container.addSubview(divider)
+        container.addSubview(mapView)
         container.addSubview(right)
         NSLayoutConstraint.activate([
             left.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             left.topAnchor.constraint(equalTo: container.topAnchor),
             left.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            divider.leadingAnchor.constraint(equalTo: left.trailingAnchor),
-            divider.topAnchor.constraint(equalTo: container.topAnchor),
-            divider.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            right.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
+            mapView.leadingAnchor.constraint(equalTo: left.trailingAnchor),
+            mapView.topAnchor.constraint(equalTo: leftScroll.topAnchor),
+            mapView.bottomAnchor.constraint(equalTo: leftScroll.bottomAnchor),
+            mapView.widthAnchor.constraint(equalToConstant: DiffMapView.width),
+            right.leadingAnchor.constraint(equalTo: mapView.trailingAnchor),
             right.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             right.topAnchor.constraint(equalTo: container.topAnchor),
             right.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -179,6 +196,16 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             left.widthAnchor.constraint(equalTo: right.widthAnchor),
         ])
         return container
+    }
+
+    private func navButton(_ symbol: String, _ tip: String, _ key: String, _ action: Selector) -> NSButton {
+        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!,
+                              target: self, action: action)
+        button.bezelStyle = .rounded
+        button.toolTip = tip
+        button.keyEquivalent = key
+        button.keyEquivalentModifierMask = [.command]
+        return button
     }
 
     private func paneTitle(_ text: String) -> NSTextField {
@@ -255,6 +282,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         other.contentView.scroll(to: origin)
         other.reflectScrolledClipView(other.contentView)
         syncingScroll = false
+        updateMapViewport()
     }
 
     // MARK: Loading
@@ -346,6 +374,72 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         }
     }
 
+    // MARK: Scrolling and change navigation
+
+    /// Every row is exactly one line in the same font, so a row's offset is
+    /// arithmetic - no need to ask the layout manager, which would force layout
+    /// of the whole file just to find one line.
+    private var lineHeight: CGFloat {
+        leftView.layoutManager?.defaultLineHeight(for: Self.font) ?? 15
+    }
+
+    private var documentHeight: CGFloat {
+        CGFloat(rowCount) * lineHeight + leftView.textContainerInset.height * 2
+    }
+
+    private func scrollPanes(toY y: CGFloat) {
+        let visible = leftScroll.contentView.bounds.height
+        let clamped = min(max(0, y), max(0, documentHeight - visible))
+        syncingScroll = true
+        for scroll in [leftScroll, rightScroll] {
+            var origin = scroll.contentView.bounds.origin
+            origin.y = clamped
+            scroll.contentView.scroll(to: origin)
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        syncingScroll = false
+        updateMapViewport()
+    }
+
+    /// A click on the map: put that point of the file in the middle of the panes.
+    private func scrollPanes(toFraction fraction: CGFloat) {
+        scrollPanes(toY: documentHeight * fraction - leftScroll.contentView.bounds.height / 2)
+    }
+
+    private func scrollPanes(toRow row: Int) {
+        // A third of the way down, not centered: the lines after a change are
+        // usually the ones you want to read.
+        let y = leftView.textContainerInset.height + CGFloat(row) * lineHeight
+        scrollPanes(toY: y - leftScroll.contentView.bounds.height / 3)
+    }
+
+    /// The row at the top of the panes right now.
+    private var topRow: Int {
+        let y = leftScroll.contentView.bounds.origin.y - leftView.textContainerInset.height
+        return max(0, Int((y / lineHeight).rounded()))
+    }
+
+    @objc private func nextChange(_ sender: Any?) {
+        guard !blocks.isEmpty else { return }
+        // Wraps: at the last change, the next one is the first again.
+        let target = blocks.first { $0.start > topRow } ?? blocks[0]
+        scrollPanes(toRow: target.start)
+    }
+
+    @objc private func previousChange(_ sender: Any?) {
+        guard !blocks.isEmpty else { return }
+        let target = blocks.last { $0.start < topRow } ?? blocks[blocks.count - 1]
+        scrollPanes(toRow: target.start)
+    }
+
+    private func updateMapViewport() {
+        let height = documentHeight
+        guard height > 0 else { return mapView.viewport = nil }
+        let origin = leftScroll.contentView.bounds.origin.y
+        let visible = leftScroll.contentView.bounds.height
+        mapView.viewport = (origin / height)...(min(1, (origin + visible) / height))
+    }
+
     // MARK: Rendering
 
     private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -356,6 +450,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         ])
         leftView.textStorage?.setAttributedString(attributed)
         rightView.textStorage?.setAttributedString(NSAttributedString(string: ""))
+        rowCount = 0
+        blocks = []
+        mapView.blocks = []
+        mapView.totalRows = 0
         scrollPanesToTop()
     }
 
@@ -368,6 +466,11 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
         leftView.textStorage?.setAttributedString(render(rows, side: .left, padTo: padTo))
         rightView.textStorage?.setAttributedString(render(rows, side: .right, padTo: padTo))
+
+        rowCount = rows.count
+        blocks = Self.blocks(in: rows)
+        mapView.totalRows = rows.count
+        mapView.blocks = blocks
         scrollPanesToTop()
     }
 
@@ -429,6 +532,41 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             scroll.reflectScrolledClipView(scroll.contentView)
         }
         syncingScroll = false
+        // The text views have just been handed new content; their frames catch
+        // up on the next layout pass, and the viewport is measured against them.
+        DispatchQueue.main.async { [weak self] in self?.updateMapViewport() }
+    }
+
+    /// Runs of adjacent non-equal rows. One edit is one mark on the map and one
+    /// stop for the next/previous-change buttons, however many lines it spans.
+    private static func blocks(in rows: [GitDiff.Row]) -> [DiffMapView.Block] {
+        var blocks: [DiffMapView.Block] = []
+        var i = 0
+        while i < rows.count {
+            guard rows[i].kind != .equal else {
+                i += 1
+                continue
+            }
+            let start = i
+            var added = false, removed = false, changed = false
+            while i < rows.count, rows[i].kind != .equal {
+                switch rows[i].kind {
+                case .added: added = true
+                case .removed: removed = true
+                case .changed: changed = true
+                case .equal: break
+                }
+                i += 1
+            }
+            let color: NSColor
+            if changed || (added && removed) {
+                color = mapChanged
+            } else {
+                color = added ? mapAdded : mapRemoved
+            }
+            blocks.append(DiffMapView.Block(start: start, end: i - 1, color: color))
+        }
+        return blocks
     }
 
     // MARK: File list
@@ -471,5 +609,81 @@ private final class HostingViewController: NSViewController {
         // the bottom of a window that had grown around it.
         content.autoresizingMask = [.width, .height]
         view = content
+    }
+}
+
+/// The strip between the panes: one mark per change, the whole file squeezed
+/// into a column a few points wide, plus an outline showing what the panes are
+/// currently looking at. Click or drag it to jump.
+///
+/// It doubles as the divider between the two panes, so the panes lose nothing
+/// to it - meld's map earns its width the same way.
+final class DiffMapView: NSView {
+    struct Block {
+        let start: Int
+        let end: Int
+        let color: NSColor
+    }
+
+    static let width: CGFloat = 14
+
+    var blocks: [Block] = [] { didSet { needsDisplay = true } }
+    var totalRows = 0 { didSet { needsDisplay = true } }
+    /// The visible span of the file, as a 0...1 fraction. Nil hides the outline.
+    var viewport: ClosedRange<CGFloat>? { didSet { needsDisplay = true } }
+    /// Where the user clicked, as a 0...1 fraction of the file.
+    var onJump: ((CGFloat) -> Void)?
+
+    // Top-down coordinates: a diff reads from the top, and so does the map.
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.textBackgroundColor.setFill()
+        bounds.fill()
+
+        NSColor.separatorColor.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: bounds.height).fill()
+        NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill()
+
+        guard totalRows > 0 else { return }
+        let inset: CGFloat = 2
+        let usable = bounds.height
+        let scale = usable / CGFloat(totalRows)
+
+        for block in blocks {
+            let top = CGFloat(block.start) * scale
+            // Never thinner than 2 points: a one-line change in a long file
+            // would round away to nothing and the map would lie.
+            let height = max(2, CGFloat(block.end - block.start + 1) * scale)
+            block.color.setFill()
+            NSRect(x: inset, y: top, width: bounds.width - inset * 2, height: height).fill()
+        }
+
+        if let viewport {
+            let top = viewport.lowerBound * usable
+            let height = max(4, (viewport.upperBound - viewport.lowerBound) * usable)
+            let rect = NSRect(x: 0.5, y: top + 0.5, width: bounds.width - 1, height: height - 1)
+            NSColor.labelColor.withAlphaComponent(0.07).setFill()
+            rect.fill()
+            NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+            let outline = NSBezierPath(rect: rect)
+            outline.lineWidth = 1
+            outline.stroke()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) { jump(to: event) }
+
+    override func mouseDragged(with event: NSEvent) { jump(to: event) }
+
+    private func jump(to event: NSEvent) {
+        guard totalRows > 0, bounds.height > 0 else { return }
+        let y = convert(event.locationInWindow, from: nil).y
+        onJump?(min(max(0, y / bounds.height), 1))
+    }
+
+    override func resetCursorRects() {
+        // Pointing hand: the strip is a control, not a passive ruler.
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 }
