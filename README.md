@@ -89,7 +89,7 @@ needed when **updating** ghostty (see "Updating ghostty").
 ## Build & run
 
 ```sh
-cd ~/projects/ak/gutter
+cd ak/gutter
 ./build.sh      # compile app + vendored wrapper, link libghostty
 ./make-app.sh   # assemble dist/Gutter.app (bundles themes + shell integration + terminfo)
 open dist/Gutter.app
@@ -130,14 +130,14 @@ Only needed when you want a newer ghostty core. Requires a ghostty checkout
 and Zig 0.15.2:
 
 ```sh
-cd ~/projects/ak/ghostty
+cd <ghostty-checkout>
 git fetch && git checkout <new-tag>
-PATH="$HOME/projects/ak/.tooling/shim-bin:$PATH" \
+PATH="<tooling-dir>/shim-bin:$PATH" \
   zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native
 ```
 
 The `shim-bin` xcrun wrapper points zig's SDK detection at a shadow SDK
-(`~/projects/ak/.tooling/MacOSX26.5-arm64.sdk`) whose tbds declare
+(`<tooling-dir>/MacOSX26.5-arm64.sdk`) whose tbds declare
 `arm64-macos` - macOS 26 SDKs dropped it and zig 0.15.2's linker requires it.
 Then refresh the vendored inputs in this repo:
 
@@ -159,7 +159,7 @@ Then refresh the vendored inputs in this repo:
 integration) - just zip it:
 
 ```sh
-cd ~/projects/ak/gutter/dist && zip -r Gutter.zip Gutter.app
+cd gutter/dist && zip -r Gutter.zip Gutter.app
 ```
 
 Recipients should know:
