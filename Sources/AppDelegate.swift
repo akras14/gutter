@@ -27,7 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
     private var windowController: MainWindowController!
     private var bridge: GhosttyBridge!        // must be retained or its observers die
-    private(set) var sessions: SessionManager!   // read by a Gutter patch in Vendor/Ghostty.App.swift
+    /// Lazy, not implicitly unwrapped: a Gutter patch in
+    /// Vendor/Ghostty/Ghostty.App.swift reads `delegate?.sessions.sessions.count`,
+    /// which would force-unwrap. Lazy keeps it non-optional while still
+    /// letting it take `ghostty` (a stored property can't reference another).
+    private(set) lazy var sessions = SessionManager(ghostty: ghostty)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard ghostty.readiness == .ready, ghostty.app != nil else {
@@ -41,7 +45,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         }
 
         ghostty.delegate = self
-        sessions = SessionManager(ghostty: ghostty)
         bridge = GhosttyBridge(sessions: sessions, ghostty: ghostty)
 
         let windowController = MainWindowController(sessions: sessions)
@@ -58,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     }
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
-        sessions?.surface(for: uuid)
+        sessions.surface(for: uuid)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

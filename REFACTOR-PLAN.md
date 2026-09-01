@@ -252,6 +252,14 @@ error alert.
 > Deviation from plan: `sessions` had to stay `private(set) var`, not `private var` —
 > a "Gutter patch" in `Vendor/Ghostty/Ghostty.App.swift:1139` reads
 > `(NSApp.delegate as? AppDelegate)?.sessions.sessions.count`.
+>
+> Follow-up (applied after validation): that made `sessions` an implicitly unwrapped
+> optional, so the vendored line above force-unwraps it — nil until
+> `applicationDidFinishLaunching` runs. Changed to
+> `private(set) lazy var sessions = SessionManager(ghostty: ghostty)`, which is
+> non-optional again and still able to read `ghostty`. The explicit assignment in
+> `applicationDidFinishLaunching` is gone (the `GhosttyBridge` line now triggers
+> the lazy init at the same moment), and `findSurface` is back to `sessions.surface(for:)`.
 
 ---
 
