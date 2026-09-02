@@ -188,14 +188,25 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 | `cmd-1..9` | Select tab N |
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |
 | `cmd-b` or toolbar button | Toggle sidebar |
-| `ctrl-shift-g` | Show uncommitted changes |
+| `ctrl-shift-g` | Show changes (side-by-side diff) |
 | `cmd-f` / `cmd-g` / `cmd-shift-g` | Find in scrollback / next / previous |
 | `cmd-e` | Use selection for find |
 | `cmd-,` / `cmd-shift-,` | Open / reload the Gutter config (`~/.config/gutter/config`) |
 | `cmd-shift-/` | Keyboard shortcuts |
 
-In the uncommitted-changes window: `cmd-]` / `cmd-[` next and previous change,
-`cmd-r` refresh, `cmd-w` close.
+In the changes window: `cmd-]` / `cmd-[` next and previous change, `cmd-r`
+refresh, `cmd-w` close. A toggle in its header picks what the left pane is
+compared against:
+
+- **Uncommitted** - `HEAD` vs the worktree. What isn't committed yet.
+- **Branch** - the merge base with the default branch vs the worktree.
+  Everything a PR opened right now would carry, commits on the branch included,
+  plus whatever is still dirty.
+
+The branch base is the merge base, not the branch tip, so commits the default
+branch gained after you branched don't show up as deletions you never made. The
+default branch is read from `origin/HEAD`, falling back to `origin/main`,
+`origin/master`, `main`, `master`.
 
 Mouse in the sidebar: drag a row to reorder sessions (`cmd-1..9` follow the new
 order), hover a row for a close button in place of its activity dot, swipe left

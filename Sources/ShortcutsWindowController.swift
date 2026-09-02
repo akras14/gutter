@@ -22,7 +22,7 @@ final class ShortcutsWindowController: NSWindowController {
         ]),
         ("View", [
             ("⌘B", "Toggle sidebar"),
-            ("⌃⇧G", "Show uncommitted changes"),
+            ("⌃⇧G", "Show changes"),
         ]),
         ("Find", [
             ("⌘F", "Find in scrollback"),
@@ -30,7 +30,7 @@ final class ShortcutsWindowController: NSWindowController {
             ("⇧⌘G", "Find previous"),
             ("⌘E", "Use selection for find"),
         ]),
-        ("Uncommitted Changes Window", [
+        ("Changes Window", [
             ("⌘]", "Next change"),
             ("⌘[", "Previous change"),
             ("⌘R", "Refresh"),

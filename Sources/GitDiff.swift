@@ -4,7 +4,7 @@ import Foundation
 /// side-by-side view. No AppKit here: `GitDiffWindowController` renders what
 /// this produces.
 ///
-/// git is only asked for *file contents* (`git show HEAD:path` and the file on
+/// git is only asked for *file contents* (`git show <rev>:path` and the file on
 /// disk), never for a rendered diff - a unified diff can't be laid out in two
 /// aligned columns without being un-merged again. The alignment below is a
 /// plain LCS over lines, the same shape meld uses.
@@ -18,7 +18,9 @@ enum GitDiff {
         /// git's status letter, plus `?` for untracked.
         let status: Character
 
-        var headPath: String { oldPath ?? path }
+        /// What to read from the base rev: a renamed file was there under
+        /// its old name.
+        var basePath: String { oldPath ?? path }
         var isNew: Bool { status == "A" || status == "?" }
         var isDeleted: Bool { status == "D" }
     }
@@ -64,16 +66,66 @@ enum GitDiff {
         return Repo(root: root.trimmed, branch: branch)
     }
 
-    /// Everything not yet committed: staged + unstaged changes against HEAD,
-    /// plus untracked files. Sorted by path, deduplicated (a file that is both
+    /// Which revision the left pane reads from. The right pane is always the
+    /// worktree, so both of these include whatever is still dirty.
+    enum Base {
+        /// HEAD: only what hasn't been committed yet.
+        case uncommitted
+        /// The merge base with the default branch: everything a PR opened
+        /// right now would carry, commits on the branch included.
+        case branch
+    }
+
+    /// A resolved `Base` - the rev to read file contents from, plus the name
+    /// to show for it in the header.
+    struct Baseline {
+        let rev: String
+        let name: String
+    }
+
+    /// Names to try when `origin/HEAD` is missing, which is common: git only
+    /// writes that ref at clone time, so a repo made with `git init` and a
+    /// remote added later never has one.
+    private static let fallbackRefs = ["origin/main", "origin/master", "main", "master"]
+
+    /// nil when the base can't be worked out - no remote, no default branch,
+    /// or histories with no common ancestor. Runs git, so keep it off the main
+    /// thread.
+    static func baseline(_ base: Base, in directory: String) -> Baseline? {
+        switch base {
+        case .uncommitted:
+            return Baseline(rev: "HEAD", name: "HEAD")
+        case .branch:
+            guard let ref = defaultRef(in: directory) else { return nil }
+            // merge-base, not the ref itself: a two-dot diff against the tip
+            // would also show every commit the default branch gained since we
+            // branched, backwards, as deletions we never made.
+            guard case let (sha, 0)? = run(["merge-base", ref, "HEAD"], in: directory),
+                  !sha.trimmed.isEmpty else { return nil }
+            return Baseline(rev: sha.trimmed, name: ref)
+        }
+    }
+
+    private static func defaultRef(in directory: String) -> String? {
+        if case let (ref, 0)? = run(["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
+                                    in: directory), !ref.trimmed.isEmpty {
+            return ref.trimmed
+        }
+        return fallbackRefs.first {
+            run(["rev-parse", "--verify", "--quiet", $0], in: directory)?.1 == 0
+        }
+    }
+
+    /// Everything between `rev` and the worktree: staged + unstaged changes,
+    /// plus untracked files.""" Sorted by path, deduplicated (a file that is both
     /// staged and dirty shows up once - both states are already folded into the
     /// worktree-vs-HEAD comparison the panes do).
-    static func changes(in directory: String) -> [FileChange] {
+    static func changes(in directory: String, since rev: String) -> [FileChange] {
         var byPath: [String: FileChange] = [:]
 
         // -M finds renames; -z keeps paths with spaces or quotes intact, which
         // the default C-style quoting would mangle.
-        if case let (out, 0)? = run(["diff", "HEAD", "--name-status", "-M", "-z"], in: directory) {
+        if case let (out, 0)? = run(["diff", rev, "--name-status", "-M", "-z"], in: directory) {
             let fields = out.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
             var i = 0
             while i < fields.count {
@@ -105,13 +157,13 @@ enum GitDiff {
 
     /// Both sides of one file, aligned into rows. Runs git, so keep it off the
     /// main thread.
-    static func diff(_ change: FileChange, in directory: String) -> FileDiff {
+    static func diff(_ change: FileChange, in directory: String, since rev: String) -> FileDiff {
         let old: String
         if change.isNew {
             old = ""
         } else {
-            guard case let (text, 0)? = runRaw(["show", "HEAD:\(change.headPath)"], in: directory) else {
-                return .note("Could not read \(change.headPath) from HEAD.")
+            guard case let (text, 0)? = runRaw(["show", "\(rev):\(change.basePath)"], in: directory) else {
+                return .note("Could not read \(change.basePath) from \(rev).")
             }
             guard let decoded = String(data: text, encoding: .utf8) else {
                 return .note("Binary file.")

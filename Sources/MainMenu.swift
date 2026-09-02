@@ -69,7 +69,7 @@ enum MainMenu {
         // ctrl-cmd-shift-g would be the obvious pick, but VS Code opens source
         // control with ctrl-shift-g and this window is the same idea; the
         // toolbar button is unreachable in fullscreen, where the bar is hidden.
-        let diff = viewMenu.addItem(withTitle: "Show Uncommitted Changes",
+        let diff = viewMenu.addItem(withTitle: "Show Changes",
                                     action: #selector(AppDelegate.showGitDiff(_:)), keyEquivalent: "g")
         diff.keyEquivalentModifierMask = [.control, .shift]
         diff.target = target
