@@ -125,10 +125,14 @@ final class SessionManager {
         sessions.first { $0.view === view }
     }
 
+    /// `config` is what the new session inherits from the one it was opened
+    /// from - the working directory above all, plus whatever else ghostty's
+    /// `*-inherit-*` config keys turn on. nil takes libghostty's defaults,
+    /// which start the session in `working-directory` (home, normally).
     @discardableResult
-    func newSession() -> Session? {
+    func newSession(config: Ghostty.SurfaceConfiguration? = nil) -> Session? {
         guard let app = ghostty.app else { return nil }
-        let view = Ghostty.SurfaceView(app, baseConfig: nil, uuid: nil)
+        let view = Ghostty.SurfaceView(app, baseConfig: config, uuid: nil)
         let session = Session(view: view)
         sessions.append(session)
 
