@@ -3,11 +3,14 @@ import GhosttyKit
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
-    /// The libghostty app + config. Prefers the user's existing Ghostty app
-    /// config (theme/font live there, not in ~/.config/ghostty); falls back
-    /// to libghostty's default file search when it doesn't exist.
-    static let configPath = ("~/Library/Application Support/com.mitchellh.ghostty/config.ghostty" as NSString).expandingTildeInPath
-    let ghostty = Ghostty.App(configPath: FileManager.default.fileExists(atPath: AppDelegate.configPath) ? AppDelegate.configPath : nil)
+    /// The libghostty app + config. Gutter has its own config file, in
+    /// ghostty's syntax; ghostty's own default files are never loaded, so
+    /// Ghostty.app's config stays Ghostty.app's. To inherit it, add a
+    /// `config-file = ?~/.config/ghostty/config` line here.
+    /// Passing a path that doesn't exist is safe: libghostty logs a
+    /// FileNotFound and the config stays at ghostty's built-in defaults.
+    static let configPath = ("~/.config/gutter/config" as NSString).expandingTildeInPath
+    let ghostty = Ghostty.App(configPath: AppDelegate.configPath)
 
     /// Referenced by vendored SurfaceView menu code.
     static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "dev.akras.gutter", category: "app")
@@ -37,8 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         guard ghostty.readiness == .ready, ghostty.app != nil else {
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "Failed to load Ghostty config"
-            alert.informativeText = "Check your Ghostty config (~/.config/ghostty/config). See Console.app for Ghostty logs."
+            alert.messageText = "Failed to load config"
+            alert.informativeText = "Check your Gutter config (\(AppDelegate.configPath)). See Console.app for Ghostty logs."
             alert.runModal()
             NSApp.terminate(nil)
             return
@@ -46,6 +49,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
         ghostty.delegate = self
         bridge = GhosttyBridge(sessions: sessions, ghostty: ghostty)
+
+        // First launch on a machine with no Gutter config: create the (empty)
+        // file so cmd-, has something to open. Silent - an empty file changes
+        // nothing about this launch, so a failure here isn't worth an alert.
+        Self.ensureConfigFile(alerting: false)
 
         let windowController = MainWindowController(sessions: sessions)
         self.windowController = windowController
@@ -108,36 +116,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     //
     // Not the vendored `Ghostty.App.openConfig()`: that opens whatever
     // `ghostty_config_open_path()` returns (~/.config/ghostty/config), which
-    // is not the file Gutter loads when Ghostty.app's own config exists.
+    // is ghostty's file, not the one Gutter loads.
 
-    /// The file the Config menu edits: the one libghostty loaded, or the
-    /// default path it would search if that file doesn't exist yet.
-    private static var editableConfigPath: String {
-        FileManager.default.fileExists(atPath: configPath)
-            ? configPath
-            : ("~/.config/ghostty/config" as NSString).expandingTildeInPath
+    /// Creates `configPath` (and its directory) when it doesn't exist yet, so
+    /// the Config menu always has a file to open. The file is deliberately
+    /// empty - nothing is written on someone else's machine but the file
+    /// itself. Returns false and alerts when creation fails.
+    @discardableResult
+    private static func ensureConfigFile(alerting: Bool) -> Bool {
+        let url = URL(fileURLWithPath: configPath)
+        if FileManager.default.fileExists(atPath: url.path) { return true }
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "".write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            if alerting {
+                alert(title: "Could not create the config file",
+                      message: "\(url.path)\n\n\(error.localizedDescription)")
+            }
+            return false
+        }
     }
 
     @objc func openConfigFile(_ sender: Any?) {
-        let url = URL(fileURLWithPath: Self.editableConfigPath)
-
-        // Nothing to edit on a machine with no Ghostty config at all; make an
-        // empty one (and its directory) so the editor has a file to open.
-        if !FileManager.default.fileExists(atPath: url.path) {
-            do {
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try "# Ghostty configuration. See https://ghostty.org/docs/config\n".write(
-                    to: url, atomically: true, encoding: .utf8)
-            } catch {
-                Self.alert(title: "Could not create the config file",
-                           message: "\(url.path)\n\n\(error.localizedDescription)")
-                return
-            }
-        }
+        let url = URL(fileURLWithPath: Self.configPath)
+        guard Self.ensureConfigFile(alerting: true) else { return }
 
         // `open -t` is the system's default text editor. It has to go through
-        // /usr/bin/open: nothing claims `.ghostty` (its UTI resolves to a
+        // /usr/bin/open: nothing claims this file type (its UTI resolves to a
         // dynamic type under public.data), so NSWorkspace.open pops the "no
         // application set to open the document" panel, and NSWorkspace's app
         // lookups return nil from inside this bundle even where the same call
@@ -160,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         // here - a silent no-op after editing the file is worse than an alert.
         let errors = ghostty.config.errors
         if !errors.isEmpty {
-            Self.alert(title: "Ghostty config errors", message: errors.joined(separator: "\n"))
+            Self.alert(title: "Gutter config errors", message: errors.joined(separator: "\n"))
         }
     }
 

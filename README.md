@@ -11,10 +11,11 @@ from ghostty's core and its own Swift wrapper. The app itself is ~700 lines of
 AppKit (window shell, sidebar, session manager). No Xcode project: everything
 builds with `swiftc` + scripts.
 
-Your existing Ghostty config drives it: theme, font size, working directory and
-keybinds are loaded from
-`~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`
-(falls back to the standard XDG locations).
+Config lives in `~/.config/gutter/config`, in ghostty's config syntax: theme,
+font size, working directory and keybinds are read from there. First launch
+creates it empty. Ghostty's own config files are never loaded - to inherit
+them, add `config-file = ?~/.config/ghostty/config` (or the path to
+`com.mitchellh.ghostty/config.ghostty`; `?` means "skip if missing").
 
 See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, layout, gotchas.
 
@@ -168,8 +169,8 @@ Recipients should know:
 - The app is **ad-hoc signed** (no developer certificate). On another Mac,
   Gatekeeper will block the first launch: right-click -> Open, or clear the
   quarantine flag with `xattr -cr Gutter.app`.
-- It reads the recipient's own Ghostty config; without one it runs with
-  ghostty's default theme.
+- It reads `~/.config/gutter/config`, not any Ghostty config; on a fresh
+  machine that file is created empty, so it runs with ghostty's default theme.
 - The embedded libghostty is MIT-licensed (c) Mitchell Hashimoto /
   ghostty contributors; keep that attribution if you redistribute.
 
@@ -190,7 +191,7 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 | `ctrl-shift-g` | Show uncommitted changes |
 | `cmd-f` / `cmd-g` / `cmd-shift-g` | Find in scrollback / next / previous |
 | `cmd-e` | Use selection for find |
-| `cmd-,` / `cmd-shift-,` | Open / reload the ghostty config |
+| `cmd-,` / `cmd-shift-,` | Open / reload the Gutter config (`~/.config/gutter/config`) |
 | `cmd-shift-/` | Keyboard shortcuts |
 
 In the uncommitted-changes window: `cmd-]` / `cmd-[` next and previous change,
