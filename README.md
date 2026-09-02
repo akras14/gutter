@@ -196,6 +196,13 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 In the uncommitted-changes window: `cmd-]` / `cmd-[` next and previous change,
 `cmd-r` refresh, `cmd-w` close.
 
+Links belong to ghostty, not to this table: `cmd`-hover underlines a URL and
+`cmd`-click opens it. Inside a program that captures the mouse (Claude Code,
+vim) that does nothing - the program owns the pointer, which is also why it
+turns into an arrow there. Add `shift`: `shift-cmd`-hover hands the mouse back
+to the terminal (`mouse-shift-capture`, off by default) and the link lights up
+again. Upstream Ghostty behaves identically.
+
 ## Troubleshooting
 
 - **Config errors at launch**: check the unified log (command above) for
