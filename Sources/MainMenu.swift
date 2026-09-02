@@ -108,6 +108,11 @@ enum MainMenu {
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
+        // Registering the menu is what makes AppKit track open windows: it
+        // appends their titles here and, more usefully, fills the Dock icon's
+        // right-click list. Without it neither one names a window, so the diff
+        // window had no route back except cmd-` or closing it.
+        NSApp.windowsMenu = windowMenu
 
         // Added last so Help sits at the right end of the bar, and registered
         // with NSApp so the system adds its search field.
