@@ -219,6 +219,23 @@ turns into an arrow there. Add `shift`: `shift-cmd`-hover hands the mouse back
 to the terminal (`mouse-shift-capture`, off by default) and the link lights up
 again. Upstream Ghostty behaves identically.
 
+## Ideas, not built
+
+Things considered and deliberately deferred. Each one records why, so the
+reasoning doesn't have to be rebuilt from scratch.
+
+- **Choose the diff base.** Branch mode assumes a PR targets the default
+  branch, which is wrong for a stacked PR based on another branch. The fix is
+  to let the base be picked rather than inferred: the Branch side of the toggle
+  becomes a small popup of candidate refs - default branch first, then other
+  local and remote branches - remembered per repo. That also covers cases no
+  PR host knows about, like diffing against a release branch.
+
+  The tempting shortcut is `gh pr view --json baseRefName`, which reports the
+  real base. Rejected: it would make Gutter depend on a tool that isn't part of
+  macOS, needs its own auth, and only answers for GitHub. See "Self-contained"
+  in `CLAUDE.md`.
+
 ## Troubleshooting
 
 - **Config errors at launch**: check the unified log (command above) for
