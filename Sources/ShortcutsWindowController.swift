@@ -37,8 +37,8 @@ final class ShortcutsWindowController: NSWindowController {
             ("⌘W", "Close window"),
         ]),
         ("Config", [
-            ("⌘,", "Open the ghostty config"),
-            ("⇧⌘,", "Reload the ghostty config"),
+            ("⌘,", "Open the Gutter config"),
+            ("⇧⌘,", "Reload the Gutter config"),
         ]),
         ("Help", [
             ("⌘?", "Keyboard shortcuts"),
