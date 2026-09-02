@@ -57,9 +57,10 @@ final class TerminalContainerViewController: NSViewController {
     private(set) var current: Session?
     private var findBar: FindBarView?
     private var searchCancellable: AnyCancellable?
+    private var pointerCancellable: AnyCancellable?
 
     override func loadView() {
-        view = NSView()
+        view = TerminalHostView()
         view.wantsLayer = true
     }
 
@@ -68,6 +69,7 @@ final class TerminalContainerViewController: NSViewController {
         current?.view.removeFromSuperview()
         removeFindBar()
         searchCancellable = nil
+        pointerCancellable = nil
         current = session
 
         guard let v = session?.view else { return }
@@ -79,6 +81,18 @@ final class TerminalContainerViewController: NSViewController {
             v.topAnchor.constraint(equalTo: view.topAnchor),
             v.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+
+        // libghostty reports the pointer shape (I-beam over text, pointing hand
+        // over a link) as a published property on the surface; nothing applies
+        // it. Ghostty's own host is an NSScrollView and uses documentCursor -
+        // this container is the same idea one level up, a cursor rect over the
+        // whole terminal area.
+        pointerCancellable = v.$pointerStyle
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak v] style in
+                guard let self, let v, self.current?.view === v else { return }
+                (self.view as? TerminalHostView)?.cursor = style.cursor
+            }
 
         // The surface, not this controller, decides when the find bar exists:
         // both the Find menu and ghostty's own start_search keybind end up
@@ -135,5 +149,22 @@ final class TerminalContainerViewController: NSViewController {
         if let v = current?.view, v.bounds.width > 0, v.bounds.height > 0 {
             v.sizeDidChange(v.bounds.size)
         }
+    }
+}
+
+/// The terminal's backdrop. It exists to own a cursor rect: the SurfaceView sets
+/// no cursor of its own, so without this the pointer stays an arrow everywhere.
+/// A superview's cursor rect still covers the area its subviews sit on - the same
+/// arrangement NSClipView uses for documentCursor.
+final class TerminalHostView: NSView {
+    var cursor: NSCursor = .iBeam {
+        didSet {
+            guard cursor != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: cursor)
     }
 }
