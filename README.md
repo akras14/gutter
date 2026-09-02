@@ -197,6 +197,10 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 In the uncommitted-changes window: `cmd-]` / `cmd-[` next and previous change,
 `cmd-r` refresh, `cmd-w` close.
 
+Mouse in the sidebar: drag a row to reorder sessions (`cmd-1..9` follow the new
+order), hover a row for a close button in place of its activity dot, swipe left
+for the same, double-click to rename.
+
 Links belong to ghostty, not to this table: `cmd`-hover underlines a URL and
 `cmd`-click opens it. Inside a program that captures the mouse (Claude Code,
 vim) that does nothing - the program owns the pointer, which is also why it
