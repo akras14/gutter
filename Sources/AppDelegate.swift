@@ -82,9 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
     // MARK: Menu actions (explicit targets - see buildMenus)
 
+    // The menu's cmd-t never reaches a surface, so no ghostty notification
+    // carries the inherited config here. Ask libghostty for it directly,
+    // against the session the user is looking at, so both cmd-t paths open in
+    // the same directory.
     @objc func newTab(_ sender: Any?) {
         Self.logger.info("newTab requested (menu)")
-        sessions.newSession()
+        sessions.newSession(config: sessions.selected.flatMap {
+            GhosttyBridge.inheritedConfig(from: $0.view)
+        })
     }
 
     // cmd-w is a menu key equivalent, so it fires whichever window is key -

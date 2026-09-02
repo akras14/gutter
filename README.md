@@ -183,7 +183,7 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 
 | Keys | Action |
 |---|---|
-| `cmd-t` / `cmd-w` | New tab / close tab (ghostty core keybinds -> notifications -> sidebar) |
+| `cmd-t` / `cmd-w` | New tab / close tab (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory` |
 | `cmd-shift-r` | Rename tab |
 | `cmd-1..9` | Select tab N |
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |

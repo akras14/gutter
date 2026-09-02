@@ -25,8 +25,13 @@ final class GhosttyBridge {
         // emitted as app actions; wire them to the session manager so the user's
         // configured keybinds work as-is.
         nc.addObserver(forName: Ghostty.Notification.ghosttyNewTab, object: nil, queue: .main) {
-            [weak self] _ in
-            self?.sessions.newSession()
+            [weak self] note in
+            // The payload is the config libghostty derived from the surface the
+            // keybind fired on, and the new tab's working directory rides in it.
+            // Dropping it opened every session in the home directory instead.
+            let config = note.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+                as? Ghostty.SurfaceConfiguration
+            self?.sessions.newSession(config: config)
         }
         nc.addObserver(forName: .ghosttyCloseTab, object: nil, queue: .main) { [weak self] note in
             guard let self, let view = note.object as? Ghostty.SurfaceView,
@@ -56,6 +61,16 @@ final class GhosttyBridge {
 }
 
 extension GhosttyBridge {
+    /// What libghostty hands a new tab opened from `view`: working directory,
+    /// font size, and whatever else the `*-inherit-*` config keys turn on.
+    /// This is the same call ghostty's own app makes for its `new_tab` action,
+    /// so the user's config decides what carries over - not this file.
+    static func inheritedConfig(from view: Ghostty.SurfaceView) -> Ghostty.SurfaceConfiguration? {
+        guard let surface = view.surface else { return nil }
+        return Ghostty.SurfaceConfiguration(
+            from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB))
+    }
+
     /// Fire one of ghostty's named keybind actions against a surface.
     ///
     /// libghostty exposes no typed C API for most features - search included
