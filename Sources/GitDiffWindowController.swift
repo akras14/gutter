@@ -24,6 +24,14 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
     private var directory: String?
     private var changes: [GitDiff.FileChange] = []
+    /// Which side of the toggle is on. Kept on the controller, so the window
+    /// comes back on the comparison it was left on.
+    private var base: GitDiff.Base = .uncommitted
+    /// The rev `base` resolved to on the last load. Every file the panes read
+    /// comes from this, so it is captured once per load rather than re-resolved
+    /// per file - a branch moving mid-review would otherwise mix two bases.
+    private var baseRev = "HEAD"
+    private let baseToggle = NSSegmentedControl()
     /// Kept across refreshes so a reload doesn't jump back to the first file.
     private var selectedPath: String?
     /// Bumped on every load; a result carrying a stale token is dropped, so a
@@ -55,7 +63,9 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = "Uncommitted Changes"
+        // Not "Uncommitted Changes" any more: the header toggle picks
+        // between that and the whole branch, so the title has to cover both.
+        window.title = "Changes"
         // The controller outlives the close - cmd-w hides this window and the
         // shortcut brings the same one back - so the window must not be
         // released out from under that reference.
@@ -75,7 +85,18 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let previous = navButton("chevron.up", "Previous Change (⌘[)", "[", #selector(previousChange(_:)))
         let next = navButton("chevron.down", "Next Change (⌘])", "]", #selector(nextChange(_:)))
 
-        let header = NSStackView(views: [pathLabel, previous, next, refresh])
+        baseToggle.segmentStyle = .automatic
+        baseToggle.trackingMode = .selectOne
+        baseToggle.segmentCount = 2
+        baseToggle.setLabel("Uncommitted", forSegment: 0)
+        baseToggle.setLabel("Branch", forSegment: 1)
+        baseToggle.setToolTip("Changes not yet committed", forSegment: 0)
+        baseToggle.setToolTip("Everything a PR opened now would carry", forSegment: 1)
+        baseToggle.selectedSegment = 0
+        baseToggle.target = self
+        baseToggle.action = #selector(baseChanged(_:))
+
+        let header = NSStackView(views: [pathLabel, baseToggle, previous, next, refresh])
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
@@ -299,6 +320,13 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         reload(nil)
     }
 
+    @objc private func baseChanged(_ sender: Any?) {
+        let picked: GitDiff.Base = baseToggle.selectedSegment == 1 ? .branch : .uncommitted
+        guard picked != base else { return }
+        base = picked
+        reload(nil)
+    }
+
     @objc private func reload(_ sender: Any?) {
         guard let directory else {
             pathLabel.stringValue = "no directory"
@@ -320,18 +348,25 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
         loadToken += 1
         let token = loadToken
+        let base = self.base
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard FileManager.default.fileExists(atPath: directory) else {
-                DispatchQueue.main.async { self?.finishLoad(token, repo: nil, changes: []) }
+                DispatchQueue.main.async {
+                    self?.finishLoad(token, repo: nil, baseline: nil, changes: [])
+                }
                 return
             }
             let repo = GitDiff.repo(at: directory)
-            let changes = repo == nil ? [] : GitDiff.changes(in: directory)
-            DispatchQueue.main.async { self?.finishLoad(token, repo: repo, changes: changes) }
+            let baseline = repo == nil ? nil : GitDiff.baseline(base, in: directory)
+            let changes = baseline.map { GitDiff.changes(in: directory, since: $0.rev) } ?? []
+            DispatchQueue.main.async {
+                self?.finishLoad(token, repo: repo, baseline: baseline, changes: changes)
+            }
         }
     }
 
-    private func finishLoad(_ token: Int, repo: GitDiff.Repo?, changes: [GitDiff.FileChange]) {
+    private func finishLoad(_ token: Int, repo: GitDiff.Repo?, baseline: GitDiff.Baseline?,
+                            changes: [GitDiff.FileChange]) {
         guard token == loadToken, let directory else { return }
         guard let repo else {
             self.changes = []
@@ -339,17 +374,50 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             showNote("Not a git repository:\n\(directory)")
             return
         }
+        // Only branch mode can fail to resolve: HEAD always exists in a repo
+        // with at least one commit, and a repo without one has nothing to show
+        // either way.
+        guard let baseline else {
+            self.changes = []
+            fileTable.reloadData()
+            showNote("""
+                Gutter can't tell what this branch would be based on.
 
+                It looks for origin/HEAD, then origin/main, origin/master, \
+                main, and master, and takes the merge base with the first one \
+                that exists. A repo with no remote and no default branch - or \
+                one whose history has nothing in common with it - has no answer.
+
+                Switch back to Uncommitted to see the working tree.
+                """)
+            return
+        }
+
+        baseRev = baseline.rev
         self.changes = changes
         fileTable.reloadData()
 
         var summary = (repo.root as NSString).abbreviatingWithTildeInPath
         if let branch = repo.branch { summary += "  ·  \(branch)" }
+        summary += "  ·  vs \(baseline.name)"
         summary += changes.count == 1 ? "  ·  1 file" : "  ·  \(changes.count) files"
         pathLabel.stringValue = summary
 
         guard !changes.isEmpty else {
-            showNote("No uncommitted changes.")
+            switch base {
+            case .uncommitted:
+                showNote("No uncommitted changes.")
+            case .branch:
+                // Sitting on the default branch with nothing dirty is the
+                // ordinary way to land here, and "no changes" alone reads like
+                // something went wrong.
+                showNote("""
+                    Nothing here that \(baseline.name) doesn't already have.
+
+                    This branch hasn't diverged from it, and the working tree \
+                    is clean - a PR opened now would be empty.
+                    """)
+            }
             return
         }
         // Keep the file that was open across a refresh when it's still dirty.
@@ -366,8 +434,9 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
         loadToken += 1
         let token = loadToken
+        let rev = baseRev
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = GitDiff.diff(change, in: directory)
+            let result = GitDiff.diff(change, in: directory, since: rev)
             DispatchQueue.main.async {
                 guard let self, token == self.loadToken else { return }
                 switch result {

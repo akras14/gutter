@@ -108,7 +108,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         case Self.gitDiffID:
             let item = NSToolbarItem(itemIdentifier: id)
             item.label = "Git Diff"
-            item.toolTip = "Show uncommitted changes in this session's directory"
+            item.toolTip = "Show changes in this session's directory"
             item.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "Git Diff")
             item.target = self
             item.action = #selector(showGitDiff(_:))
