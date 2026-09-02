@@ -22,6 +22,27 @@ final class Session {
 
     var displayTitle: String { customTitle ?? title }
 
+    /// Claude Code prefixes the terminal title with a status glyph: "✳" when it
+    /// hands the session back - finished, or asking something - and a spinner
+    /// while it is still working. The two cases the glyph covers aren't
+    /// distinguishable from the title, but both mean the same thing to the
+    /// sidebar: this session is waiting on the user. Anything else, a plain
+    /// shell included, never lights the dot.
+    var isReady: Bool {
+        title.trimmingCharacters(in: .whitespaces).hasPrefix("✳")
+    }
+
+    /// True once the user has looked at this session while it was ready. The
+    /// glyph stays in the title for as long as Claude Code is waiting, so
+    /// without this the dot would come back the moment the user switched away
+    /// from a tab they had just read. Re-arms when the session goes back to
+    /// work: the next hand-off is news again.
+    fileprivate var readySeen = false
+
+    /// What the sidebar dot shows: something happened here that the user has
+    /// not seen yet.
+    var needsAttention: Bool { hasActivity || (isReady && !readySeen) }
+
     /// Folder plus branch: the stable identity of a session, as opposed to the
     /// title, which Claude Code and the shell both rewrite constantly.
     var location: String {
@@ -59,8 +80,28 @@ final class Session {
 final class SessionManager {
     private let ghostty: Ghostty.App
 
+    /// A session that goes ready while Gutter is in the background hasn't been
+    /// seen, even if it is the selected one - coming back to the app is what
+    /// marks it read.
+    private var activationObserver: Any?
+
     init(ghostty: Ghostty.App) {
         self.ghostty = ghostty
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, let selected = self.selected else { return }
+            self.updateReadySeen(selected)
+            self.onListChanged?()
+        }
+    }
+
+    deinit {
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
     }
 
     private(set) var sessions: [Session] = []
@@ -92,6 +133,7 @@ final class SessionManager {
             .receive(on: RunLoop.main)
             .sink { [weak self] title in
                 session.title = title
+                self?.updateReadySeen(session)
                 self?.onListChanged?()
                 // A retitle means the shell ran something, which is the only
                 // hint we get that the branch may have moved.
@@ -184,8 +226,19 @@ final class SessionManager {
         guard session !== selected else { return }
         selected = session
         session?.hasActivity = false
+        if let session { updateReadySeen(session) }
         onSelectionChanged?(session)
         onListChanged?()
+    }
+
+    /// Visiting a tab marks its current ready state as read; a tab that is no
+    /// longer ready forgets it saw one, so the next hand-off lights the dot.
+    private func updateReadySeen(_ session: Session) {
+        if !session.isReady {
+            session.readySeen = false
+        } else if session === selected, NSApp.isActive {
+            session.readySeen = true
+        }
     }
 
     func select(index: Int) {
