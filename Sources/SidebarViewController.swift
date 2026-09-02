@@ -186,7 +186,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         }
         cell.configure(primary: session.primaryLine,
                        secondary: session.secondaryLine,
-                       active: session.hasActivity,
+                       active: session.needsAttention,
                        shortcut: row < 9 ? "⌘\(row + 1)" : "")
         return cell
     }
