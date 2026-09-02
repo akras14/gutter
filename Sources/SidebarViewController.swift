@@ -3,6 +3,9 @@ import GhosttyKit
 
 /// Source-list sidebar: one row per session with a title and an activity dot.
 final class SidebarViewController: NSViewController {
+    /// Local-only drag type: rows move within this table and nowhere else.
+    private static let rowType = NSPasteboard.PasteboardType("com.gutter.session-row")
+
     private let sessions: SessionManager
     private var tableView: NSTableView!
     private var scrollView: NSScrollView!
@@ -49,6 +52,8 @@ final class SidebarViewController: NSViewController {
         table.target = self
         table.action = #selector(rowClicked(_:))
         table.doubleAction = #selector(rowDoubleClicked(_:))
+        table.registerForDraggedTypes([Self.rowType])
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
         self.tableView = table
 
         let scroll = NSScrollView()
@@ -128,10 +133,15 @@ final class SidebarViewController: NSViewController {
         tableView.scrollRowToVisible(row)
         guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? SessionCellView else { return }
         renamingRow = row
-        // Seed the field with the name itself, never the folder + branch line
-        // the row may be showing in its place.
+        // Seed with the custom name and nothing else: an unnamed session opens
+        // an empty field. Seeding it with the shell title instead made Enter
+        // look like it had rewritten the row on its own. What the row would
+        // show without a name becomes the placeholder, so clearing the field
+        // visibly means "go back to that".
         let session = sessions.sessions[row]
-        cell.beginRename(seed: session.customTitle ?? session.title, delegate: self)
+        cell.beginRename(seed: session.customTitle ?? "",
+                         placeholder: session.autoTitle,
+                         delegate: self)
     }
 
     private func finishRename(field: NSTextField, commit: Bool) {
@@ -188,7 +198,31 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                        secondary: session.secondaryLine,
                        active: session.needsAttention,
                        shortcut: row < 9 ? "⌘\(row + 1)" : "")
+        cell.onClose = { [weak self] in self?.sessions.close(session) }
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        let item = NSPasteboardItem()
+        item.setString(String(row), forType: Self.rowType)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
+                   proposedRow row: Int,
+                   proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
+        // Only between rows, and only for a drag that started in this table -
+        // dropping *on* a row would read as "open in", which means nothing here.
+        guard op == .above, info.draggingSource as AnyObject === tableView else { return [] }
+        return .move
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
+                   row: Int, dropOperation op: NSTableView.DropOperation) -> Bool {
+        guard let raw = info.draggingPasteboard.string(forType: Self.rowType),
+              let from = Int(raw) else { return false }
+        sessions.move(from: from, to: row)
+        return true
     }
 
     func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
@@ -202,16 +236,31 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 }
 
 /// Two lines per session - a stable one over a live one - plus the activity
-/// dot and the shortcut hint.
+/// dot, the shortcut hint, and a close button that takes the dot's place while
+/// the pointer is over the row.
 final class SessionCellView: NSTableCellView {
     private let dot = ActivityDotView()
+    private let close = NSButton()
     private let label = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
     private let hint = NSTextField(labelWithString: "")
+    /// A field with no chrome of its own, over an opaque box. Both the label
+    /// made editable and a normal bezeled field ended up unreadable: a selected
+    /// row makes every control inside it draw emphasized, so the bezel came out
+    /// translucent and the black text sat on the blue selection. The box is not
+    /// a control, so nothing recolours it.
+    private let editorBackdrop = NSBox()
+    private let editor = NSTextField()
     /// Only one of these is ever active: the pair sits astride the row's centre
     /// when there are two lines, and a lone title sits on it.
     private var stackedConstraint: NSLayoutConstraint!
     private var centeredConstraint: NSLayoutConstraint!
+    private var trackingArea: NSTrackingArea?
+    private var twoLine = false
+    private var renaming = false
+
+    /// Set on every configure, so it always closes the row it is drawn on.
+    var onClose: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -227,10 +276,48 @@ final class SessionCellView: NSTableCellView {
         hint.setContentCompressionResistancePriority(.required, for: .horizontal)
         hint.setContentHuggingPriority(.required, for: .horizontal)
         dot.translatesAutoresizingMaskIntoConstraints = false
+
+        close.translatesAutoresizingMaskIntoConstraints = false
+        close.isBordered = false
+        close.bezelStyle = .inline
+        close.imagePosition = .imageOnly
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close session")?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
+        close.image?.isTemplate = true
+        close.toolTip = "Close session"
+        close.isHidden = true
+        close.target = self
+        close.action = #selector(closeClicked)
+
+        editorBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        editorBackdrop.boxType = .custom
+        editorBackdrop.titlePosition = .noTitle
+        editorBackdrop.contentViewMargins = .zero
+        editorBackdrop.fillColor = .textBackgroundColor
+        editorBackdrop.borderColor = .separatorColor
+        editorBackdrop.borderWidth = 1
+        editorBackdrop.cornerRadius = 5
+        editorBackdrop.isHidden = true
+
+        editor.translatesAutoresizingMaskIntoConstraints = false
+        editor.font = .systemFont(ofSize: NSFont.systemFontSize)
+        editor.isBezeled = false
+        editor.isBordered = false
+        editor.drawsBackground = false
+        editor.focusRingType = .none
+        editor.isEditable = true
+        editor.isSelectable = true
+        editor.lineBreakMode = .byTruncatingTail
+        editor.usesSingleLineMode = true
+        editor.isHidden = true
+
         addSubview(dot)
+        addSubview(close)
         addSubview(label)
         addSubview(subtitle)
         addSubview(hint)
+        addSubview(editorBackdrop)
+        addSubview(editor)
 
         stackedConstraint = label.bottomAnchor.constraint(equalTo: centerYAnchor, constant: 1)
         centeredConstraint = label.centerYAnchor.constraint(equalTo: centerYAnchor)
@@ -240,6 +327,12 @@ final class SessionCellView: NSTableCellView {
             dot.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 7),
             dot.heightAnchor.constraint(equalToConstant: 7),
+            // Same slot as the dot, but centred on the row and big enough to
+            // hit: the two are never on screen together.
+            close.centerXAnchor.constraint(equalTo: dot.centerXAnchor),
+            close.centerYAnchor.constraint(equalTo: centerYAnchor),
+            close.widthAnchor.constraint(equalToConstant: 16),
+            close.heightAnchor.constraint(equalToConstant: 16),
             label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(equalTo: hint.leadingAnchor, constant: -6),
             subtitle.leadingAnchor.constraint(equalTo: label.leadingAnchor),
@@ -247,6 +340,15 @@ final class SessionCellView: NSTableCellView {
             subtitle.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
             hint.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             hint.centerYAnchor.constraint(equalTo: label.centerYAnchor),
+            // The field covers the whole row rather than one of its lines -
+            // what is being renamed is the session, not a line of it.
+            editorBackdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            editorBackdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            editorBackdrop.centerYAnchor.constraint(equalTo: centerYAnchor),
+            editorBackdrop.heightAnchor.constraint(equalToConstant: 24),
+            editor.leadingAnchor.constraint(equalTo: editorBackdrop.leadingAnchor, constant: 6),
+            editor.trailingAnchor.constraint(equalTo: editorBackdrop.trailingAnchor, constant: -6),
+            editor.centerYAnchor.constraint(equalTo: editorBackdrop.centerYAnchor),
             stackedConstraint,
         ])
     }
@@ -261,41 +363,86 @@ final class SessionCellView: NSTableCellView {
         hint.isHidden = shortcut.isEmpty
         dot.isActive = active
         applyTextColors()
+        // Cells are recycled, so a reload under a stationary pointer has to
+        // re-decide hover from where the mouse actually is - no enter/exit
+        // event arrives for a row that was simply re-drawn.
+        setHovered(pointerIsInside)
         needsLayout = true
     }
 
     private func setTwoLine(_ twoLine: Bool) {
+        self.twoLine = twoLine
         subtitle.isHidden = !twoLine
         // Deactivate first: both active at once is an unsatisfiable pair.
         (twoLine ? centeredConstraint : stackedConstraint)?.isActive = false
         (twoLine ? stackedConstraint : centeredConstraint)?.isActive = true
     }
 
-    /// Turn the title label into an editable field in place. The shortcut hint
-    /// hides for the duration - it reads as part of the field otherwise.
-    func beginRename(seed: String, delegate: NSTextFieldDelegate) {
-        label.stringValue = seed
-        label.delegate = delegate
-        label.isEditable = true
-        label.isSelectable = true
-        label.isBezeled = true
-        label.bezelStyle = .roundedBezel
-        label.drawsBackground = true
-        label.backgroundColor = .textBackgroundColor
-        // Selected rows draw the label white, which is invisible on the field's
-        // own background.
-        label.textColor = .labelColor
+    // MARK: - Hover
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    private var pointerIsInside: Bool {
+        guard let window, window.isKeyWindow || NSApp.isActive else { return false }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return bounds.contains(point)
+    }
+
+    override func mouseEntered(with event: NSEvent) { setHovered(true) }
+    override func mouseExited(with event: NSEvent) { setHovered(false) }
+
+    private func setHovered(_ hovered: Bool) {
+        guard !renaming else { return }
+        close.isHidden = !hovered
+        dot.isHidden = hovered
+    }
+
+    @objc private func closeClicked() {
+        onClose?()
+    }
+
+    // MARK: - Rename
+
+    /// Swap the whole row for an editable field. Everything else hides for the
+    /// duration - the shortcut hint reads as part of the field otherwise, and
+    /// the two labels would show through beside it.
+    func beginRename(seed: String, placeholder: String, delegate: NSTextFieldDelegate) {
+        renaming = true
+        editor.stringValue = seed
+        editor.placeholderString = placeholder
+        editor.delegate = delegate
+        // Set every time: an emphasized row repaints controls inside it, and
+        // an explicit colour is what survives that.
+        editor.textColor = .textColor
+        editor.isHidden = false
+        editorBackdrop.isHidden = false
+        label.isHidden = true
+        subtitle.isHidden = true
         hint.isHidden = true
-        window?.makeFirstResponder(label)
+        dot.isHidden = true
+        close.isHidden = true
+        window?.makeFirstResponder(editor)
+        editor.currentEditor()?.selectAll(nil)
     }
 
     func endRename() {
-        label.isEditable = false
-        label.isSelectable = false
-        label.isBezeled = false
-        label.drawsBackground = false
-        label.delegate = nil
+        renaming = false
+        editor.delegate = nil
+        editor.isHidden = true
+        editorBackdrop.isHidden = true
+        label.isHidden = false
+        subtitle.isHidden = !twoLine
         hint.isHidden = hint.stringValue.isEmpty
+        dot.isHidden = false
+        close.isHidden = true
         applyTextColors()
     }
 
@@ -312,6 +459,8 @@ final class SessionCellView: NSTableCellView {
         hint.textColor = emphasized
             ? .white.withAlphaComponent(0.7)
             : .secondaryLabelColor
+        close.contentTintColor = emphasized ? .white : .secondaryLabelColor
+        if renaming { editor.textColor = .textColor }
     }
 }
 

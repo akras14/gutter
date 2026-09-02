@@ -51,20 +51,24 @@ final class Session {
         return "\(folder) ⎇ \(branch)"
     }
 
-    /// Top line: the name the user gave the session, else where it is, else
-    /// whatever the shell calls itself.
-    var primaryLine: String {
-        if let customTitle { return customTitle }
-        return location.isEmpty ? title : location
+    /// What the row calls this session when the user hasn't named it: the
+    /// shell's own title, or where it is when there is no title yet. Also the
+    /// placeholder in the rename field - clearing the name goes back to this.
+    var autoTitle: String {
+        title.isEmpty ? location : title
     }
 
-    /// Bottom line: the live title under a stable top line, or the location
-    /// under a name the user chose. Empty when it would only repeat the top
-    /// line - a one-line row is better than a row that says it twice.
+    /// Top line: what to call the session. Bottom line: where it is. Fixed
+    /// roles, so renaming replaces the top line instead of shuffling the two
+    /// around; every row reads the same way whether or not it has a name.
+    var primaryLine: String {
+        customTitle ?? autoTitle
+    }
+
+    /// Empty when it would only repeat the top line - a one-line row is better
+    /// than a row that says it twice.
     var secondaryLine: String {
-        let secondary = customTitle == nil ? title : location
-        if secondary == primaryLine || secondary == folder { return "" }
-        return secondary
+        location == primaryLine ? "" : location
     }
 
     /// Pending debounced branch check. See `SessionManager.scheduleBranchCheck`.
@@ -219,6 +223,17 @@ final class SessionManager {
     func rename(_ session: Session, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         session.customTitle = trimmed.isEmpty ? nil : trimmed
+        onListChanged?()
+    }
+
+    /// Drag-reorder from the sidebar. `to` is an insertion point, so it can be
+    /// one past the end and can sit on either side of the row being moved.
+    func move(from: Int, to: Int) {
+        guard sessions.indices.contains(from), to >= 0, to <= sessions.count else { return }
+        let target = to > from ? to - 1 : to
+        guard target != from else { return }
+        let session = sessions.remove(at: from)
+        sessions.insert(session, at: target)
         onListChanged?()
     }
 
