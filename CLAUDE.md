@@ -2,7 +2,8 @@
 
 A native macOS terminal app: one window, a sidebar of sessions, one live terminal
 surface. It embeds libghostty v1.3.1 as a static library and reuses ghostty's own Swift
-wrapper. `README.md` has the architecture diagram and the full build notes.
+wrapper. `README.md` has the architecture diagram and the full build notes;
+`DESIGN.md` has the design decisions and what was deliberately left out.
 
 ## Build and run
 
@@ -17,6 +18,13 @@ no build-script change.
 
 ## Constraints
 
+- **Read `DESIGN.md` first.** It holds every design decision: what Gutter is for,
+  what was declined (splits, a `gh` dependency), what is deliberate and must not
+  be "fixed" (whole-file diffs), and what is deferred. Read it at the start of any
+  session that proposes a feature, changes behavior, or adds a dependency - not
+  just when a change looks design-shaped. Several of the obvious suggestions are
+  already recorded there as rejected, with reasons that aren't visible in the code.
+  When a decision is made or reversed, update it in the same commit.
 - **Edit `Sources/` only.** `Vendor/` is ghostty's Swift wrapper, copied verbatim by
   `vendor.sh`, and `deps/` holds the prebuilt `libghostty.a`, headers, and resources.
   Edits to either are wiped by the next ghostty update. If a change seems to need one,
@@ -38,16 +46,6 @@ no build-script change.
   `Sources/ShortcutsWindowController.swift` (the ⌘? panel, written by hand), and the
   Keybinds table in `README.md`. All three are hand-maintained - nothing generates them
   from the menu - so a shortcut added to only one of them silently goes undocumented.
-- **Self-contained.** The only external processes Gutter runs are macOS system
-  binaries - `/usr/bin/git` for everything in `GitDiff.swift`, `/usr/bin/open`
-  for the config file - and the only config it reads is its own at
-  `~/.config/gutter/config`. Don't add a dependency on a developer tool that
-  isn't part of macOS (`gh`, `jq`, `fzf`, a language runtime), don't read
-  another tool's config or credentials, and don't make the app talk to the
-  network. A machine with Xcode's command line tools and nothing else must run
-  every feature. If something seems to need more, stop and ask - the answer is
-  usually a smaller feature that uses git alone. `README.md` has an "Ideas, not
-  built" section recording what was turned down this way and why.
 - **Keep the comments.** They record hard-won fixes: fullscreen bar behavior, the first
   keystroke after launch, the `command` config quirk. Move them with the code they
   explain; don't drop them as noise.

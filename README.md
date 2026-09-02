@@ -34,12 +34,11 @@ instead.
 It also began as a question: can a separate app embed libghostty and drive it?
 Yes, in ~700 lines of AppKit. Gutter is that experiment.
 
-**Not a fork.** Gutter links the released `libghostty` static library and brings
-its own AppKit shell. Following upstream means auditing one file
-(`GhosttyBridge`) for API drift, not rebasing a patched copy of ghostty's source.
+It is not a fork and not a full terminal: one window, a sidebar of sessions,
+one live surface. For a full-featured terminal, use Ghostty or iTerm2.
 
-**Not a product.** No splits, no scrollback search, no session restore, no test
-suite. For a full-featured terminal, use Ghostty or iTerm2.
+`DESIGN.md` records why Gutter is shaped this way and what was deliberately
+left out - read it before proposing a feature.
 
 ## Architecture
 
@@ -76,6 +75,7 @@ dot) - the surface is the real terminal.
 | `vendor.sh` | Re-copies + patches the wrapper (patches live here, reproducible) |
 | `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` (bundles themes + shell integration + terminfo) |
 | `Info.plist` | Bundle metadata (bundle id, min macOS 13) |
+| `DESIGN.md` | Why Gutter is shaped this way; declined and deferred features |
 
 ## Requirements
 
@@ -203,10 +203,9 @@ compared against:
   Everything a PR opened right now would carry, commits on the branch included,
   plus whatever is still dirty.
 
-The branch base is the merge base, not the branch tip, so commits the default
-branch gained after you branched don't show up as deletions you never made. The
-default branch is read from `origin/HEAD`, falling back to `origin/main`,
-`origin/master`, `main`, `master`.
+The default branch is read from `origin/HEAD`, falling back to `origin/main`,
+`origin/master`, `main`, `master`. `DESIGN.md` explains why branch mode uses
+the merge base rather than the branch tip.
 
 Mouse in the sidebar: drag a row to reorder sessions (`cmd-1..9` follow the new
 order), hover a row for a close button in place of its activity dot, swipe left
@@ -218,23 +217,6 @@ vim) that does nothing - the program owns the pointer, which is also why it
 turns into an arrow there. Add `shift`: `shift-cmd`-hover hands the mouse back
 to the terminal (`mouse-shift-capture`, off by default) and the link lights up
 again. Upstream Ghostty behaves identically.
-
-## Ideas, not built
-
-Things considered and deliberately deferred. Each one records why, so the
-reasoning doesn't have to be rebuilt from scratch.
-
-- **Choose the diff base.** Branch mode assumes a PR targets the default
-  branch, which is wrong for a stacked PR based on another branch. The fix is
-  to let the base be picked rather than inferred: the Branch side of the toggle
-  becomes a small popup of candidate refs - default branch first, then other
-  local and remote branches - remembered per repo. That also covers cases no
-  PR host knows about, like diffing against a release branch.
-
-  The tempting shortcut is `gh pr view --json baseRefName`, which reports the
-  real base. Rejected: it would make Gutter depend on a tool that isn't part of
-  macOS, needs its own auth, and only answers for GitHub. See "Self-contained"
-  in `CLAUDE.md`.
 
 ## Troubleshooting
 
