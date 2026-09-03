@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
     func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool { false }
 
     private var windowController: MainWindowController!
+    /// Live only while the New Request sheet is up.
+    private var requestSheet: NewRequestSheet?
     private var bridge: GhosttyBridge!        // must be retained or its observers die
     /// Lazy, not implicitly unwrapped: a Gutter patch in
     /// Vendor/Ghostty/Ghostty.App.swift reads `delegate?.sessions.sessions.count`,
@@ -54,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         // file so cmd-, has something to open. Silent - an empty file changes
         // nothing about this launch, so a failure here isn't worth an alert.
         Self.ensureConfigFile(alerting: false)
+        LauncherConfig.ensureFile()
 
         let windowController = MainWindowController(sessions: sessions)
         self.windowController = windowController
@@ -91,6 +94,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         sessions.newSession(config: sessions.selected.flatMap {
             GhosttyBridge.inheritedConfig(from: $0.view)
         })
+    }
+
+    /// Fires a request off into a new tab: the folder the current session is
+    /// in, the command the launchers file picks for that folder, and no change
+    /// of focus - the new session runs in the background.
+    @objc func newRequest(_ sender: Any?) {
+        let launchers = LauncherConfig.load()
+        let directory = sessions.selected.flatMap {
+            GhosttyBridge.inheritedConfig(from: $0.view)?.workingDirectory
+        } ?? sessions.selected?.pwd
+
+        guard !launchers.choices(for: directory).isEmpty else {
+            Self.alert(title: "No launchers configured",
+                       message: "Add a line like `launcher = claude` to \(LauncherConfig.path).")
+            return
+        }
+
+        // Held for the life of the sheet: NSAlert doesn't retain its delegate,
+        // and the sheet is asynchronous.
+        let sheet = NewRequestSheet(launchers: launchers,
+                                    folders: requestFolders(current: directory, launchers: launchers))
+        requestSheet = sheet
+        sheet.present(in: windowController.window) { [weak self] request in
+            self?.requestSheet = nil
+            guard let request else { return }
+            self?.launchRequest(command: request.command,
+                                directory: request.directory,
+                                prompt: request.prompt)
+        }
+    }
+
+    /// What the sheet's folder popup offers: where you are, where your other
+    /// tabs are, then whatever the launchers file names. First mention wins, so
+    /// the current folder stays at the top and comes preselected - and a folder
+    /// you have a tab open in never needs a config line.
+    private func requestFolders(current: String?, launchers: LauncherConfig) -> [String] {
+        var seen = Set<String>()
+        let all = [current].compactMap { $0 }
+            + sessions.sessions.compactMap { $0.pwd }
+            + launchers.folders
+            + launchers.folderDefaults.map { $0.prefix }
+        return all.filter { seen.insert($0).inserted }
+    }
+
+    /// The one place a launcher-started session is built. `command` and
+    /// `directory` nil mean "whatever the current session and the launchers
+    /// file say", which is what the menu item passes.
+    func launchRequest(command: String? = nil, directory: String? = nil, prompt: String) {
+        // Start from what a plain new tab would inherit (working directory,
+        // font size, whatever the user's *-inherit-* keys turn on), then
+        // override only what the request specifies.
+        var config = sessions.selected.flatMap { GhosttyBridge.inheritedConfig(from: $0.view) }
+            ?? Ghostty.SurfaceConfiguration()
+        if let directory { config.workingDirectory = directory }
+
+        let launchers = LauncherConfig.load()
+        guard let command = command ?? launchers.command(for: config.workingDirectory) else {
+            Self.alert(title: "No launchers configured",
+                       message: "Add a line like `launcher = claude` to \(LauncherConfig.path).")
+            return
+        }
+
+        // Typed into the session's shell rather than spawned as the surface's
+        // `command`: an interactive shell is where the user's aliases live
+        // (`pclaude` is one), and it survives the tool exiting, so the tab
+        // stays usable in that folder afterwards.
+        config.initialInput = LauncherConfig.commandLine(command, prompt: prompt)
+        Self.logger.info("newRequest command=\(command, privacy: .public)")
+        sessions.newSession(config: config, select: false)
     }
 
     // cmd-w is a menu key equivalent, so it fires whichever window is key -
@@ -146,9 +218,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         }
     }
 
+    /// Opens both config files at once. They are split for libghostty's sake,
+    /// not the user's - one parses the ghostty file and diagnoses keys it
+    /// doesn't know, so Gutter's launchers need their own - and making the user
+    /// remember which key lives where would be that split leaking out.
     @objc func openConfigFile(_ sender: Any?) {
         let url = URL(fileURLWithPath: Self.configPath)
         guard Self.ensureConfigFile(alerting: true) else { return }
+        LauncherConfig.ensureFile()
+        let launchers = URL(fileURLWithPath: LauncherConfig.path)
 
         // `open -t` is the system's default text editor. It has to go through
         // /usr/bin/open: nothing claims this file type (its UTI resolves to a
@@ -158,14 +236,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
         // resolves fine in a plain command-line binary.
         let open = Process()
         open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        open.arguments = ["-t", url.path]
+        open.arguments = ["-t", url.path, launchers.path]
         if (try? open.run()) != nil {
             open.waitUntilExit()
             if open.terminationStatus == 0 { return }
         }
         // No text editor at all: show the file in Finder rather than leaving
         // the menu item looking broken.
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        NSWorkspace.shared.activateFileViewerSelecting([url, launchers])
     }
 
     @objc func reloadConfigFile(_ sender: Any?) {

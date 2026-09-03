@@ -22,14 +22,25 @@ final class Session {
 
     var displayTitle: String { customTitle ?? title }
 
+    /// True while the surface carries an OSC 9;4 progress report - the ConEmu
+    /// sequence Windows Terminal, iTerm2 and ghostty all read as "working".
+    /// Set from the surface's progressReport publisher.
+    var isWorking: Bool = false
+
+    /// Set on the working -> idle edge of a progress report. Serves the same
+    /// purpose as Claude Code's "✳" title below: the session just handed
+    /// itself back to the user.
+    fileprivate var workFinished = false
+
     /// Claude Code prefixes the terminal title with a status glyph: "✳" when it
     /// hands the session back - finished, or asking something - and a spinner
     /// while it is still working. The two cases the glyph covers aren't
     /// distinguishable from the title, but both mean the same thing to the
     /// sidebar: this session is waiting on the user. Anything else, a plain
-    /// shell included, never lights the dot.
+    /// shell included, never lights the dot. `workFinished` means the same
+    /// thing for tools that speak OSC 9;4.
     var isReady: Bool {
-        title.trimmingCharacters(in: .whitespaces).hasPrefix("✳")
+        title.trimmingCharacters(in: .whitespaces).hasPrefix("✳") || workFinished
     }
 
     /// True once the user has looked at this session while it was ready. The
@@ -129,8 +140,13 @@ final class SessionManager {
     /// from - the working directory above all, plus whatever else ghostty's
     /// `*-inherit-*` config keys turn on. nil takes libghostty's defaults,
     /// which start the session in `working-directory` (home, normally).
+    /// `select` false leaves the current session in front. A request fired
+    /// off into a new tab has to run without stealing focus from whatever the
+    /// user is in the middle of - that is the point of firing it off. The pty
+    /// spawns in `SurfaceView.init` either way, so a session that is never
+    /// shown still runs, at the 800x600 frame the view starts with.
     @discardableResult
-    func newSession(config: Ghostty.SurfaceConfiguration? = nil) -> Session? {
+    func newSession(config: Ghostty.SurfaceConfiguration? = nil, select selectNew: Bool = true) -> Session? {
         guard let app = ghostty.app else { return nil }
         let view = Ghostty.SurfaceView(app, baseConfig: config, uuid: nil)
         let session = Session(view: view)
@@ -166,13 +182,34 @@ final class SessionManager {
                 self.onListChanged?()
             }
 
+        // OSC 9;4 progress: a live report means the tool is working, and the
+        // report clearing (the tool's "remove", or the vendored wrapper's
+        // 15s expiry of an unrefreshed report) is the working -> idle edge
+        // that lights the dot - the progress equivalent of the "✳" title.
+        let progressSub = view.$progressReport
+            .receive(on: RunLoop.main)
+            .sink { [weak self] report in
+                guard let self, self.sessions.contains(where: { $0 === session }) else { return }
+                let working = report != nil
+                guard working != session.isWorking else { return }
+                session.isWorking = working
+                session.workFinished = !working
+                self.updateReadySeen(session)
+                self.onListChanged?()
+            }
+
         cancellables[session.id] = AnyCancellable {
             titleSub.cancel()
             pwdSub.cancel()
             bellSub.cancel()
+            progressSub.cancel()
         }
 
-        select(session)
+        if selectNew {
+            select(session)
+        } else {
+            onListChanged?()
+        }
         return session
     }
 

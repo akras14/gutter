@@ -197,6 +197,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         cell.configure(primary: session.primaryLine,
                        secondary: session.secondaryLine,
                        active: session.needsAttention,
+                       working: session.isWorking,
                        shortcut: row < 9 ? "⌘\(row + 1)" : "")
         cell.onClose = { [weak self] in self?.sessions.close(session) }
         return cell
@@ -235,11 +236,13 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-/// Two lines per session - a stable one over a live one - plus the activity
-/// dot, the shortcut hint, and a close button that takes the dot's place while
-/// the pointer is over the row.
+/// Two lines per session - a stable one over a live one - plus the status
+/// slot (activity dot, or a spinner while the session reports OSC 9;4
+/// progress), the shortcut hint, and a close button that takes the slot's
+/// place while the pointer is over the row.
 final class SessionCellView: NSTableCellView {
     private let dot = ActivityDotView()
+    private let spinner = NSProgressIndicator()
     private let close = NSButton()
     private let label = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
@@ -258,6 +261,8 @@ final class SessionCellView: NSTableCellView {
     private var trackingArea: NSTrackingArea?
     private var twoLine = false
     private var renaming = false
+    private var hovered = false
+    private var working = false
 
     /// Set on every configure, so it always closes the row it is drawn on.
     var onClose: (() -> Void)?
@@ -276,6 +281,12 @@ final class SessionCellView: NSTableCellView {
         hint.setContentCompressionResistancePriority(.required, for: .horizontal)
         hint.setContentHuggingPriority(.required, for: .horizontal)
         dot.translatesAutoresizingMaskIntoConstraints = false
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+        spinner.isHidden = true
 
         close.translatesAutoresizingMaskIntoConstraints = false
         close.isBordered = false
@@ -312,6 +323,7 @@ final class SessionCellView: NSTableCellView {
         editor.isHidden = true
 
         addSubview(dot)
+        addSubview(spinner)
         addSubview(close)
         addSubview(label)
         addSubview(subtitle)
@@ -327,6 +339,11 @@ final class SessionCellView: NSTableCellView {
             dot.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 7),
             dot.heightAnchor.constraint(equalToConstant: 7),
+            // Same slot as the dot: never on screen together with it.
+            spinner.centerXAnchor.constraint(equalTo: dot.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: dot.centerYAnchor),
+            spinner.widthAnchor.constraint(equalToConstant: 16),
+            spinner.heightAnchor.constraint(equalToConstant: 16),
             // Same slot as the dot, but centred on the row and big enough to
             // hit: the two are never on screen together.
             close.centerXAnchor.constraint(equalTo: dot.centerXAnchor),
@@ -355,18 +372,25 @@ final class SessionCellView: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func configure(primary: String, secondary: String, active: Bool, shortcut: String) {
+    func configure(primary: String, secondary: String, active: Bool, working: Bool, shortcut: String) {
         label.stringValue = primary
         subtitle.stringValue = secondary
         setTwoLine(!secondary.isEmpty)
         hint.stringValue = shortcut
         hint.isHidden = shortcut.isEmpty
         dot.isActive = active
+        self.working = working
+        if working {
+            spinner.startAnimation(nil)
+        } else {
+            spinner.stopAnimation(nil)
+        }
         applyTextColors()
         // Cells are recycled, so a reload under a stationary pointer has to
         // re-decide hover from where the mouse actually is - no enter/exit
         // event arrives for a row that was simply re-drawn.
-        setHovered(pointerIsInside)
+        hovered = pointerIsInside
+        syncStatusSlot()
         needsLayout = true
     }
 
@@ -401,8 +425,19 @@ final class SessionCellView: NSTableCellView {
 
     private func setHovered(_ hovered: Bool) {
         guard !renaming else { return }
-        close.isHidden = !hovered
-        dot.isHidden = hovered
+        self.hovered = hovered
+        syncStatusSlot()
+    }
+
+    /// One status slot left of the title, at most one occupant: the close
+    /// button while hovered, the spinner while the session is working, the
+    /// activity dot otherwise. All three hide for a rename.
+    private func syncStatusSlot() {
+        let showClose = hovered && !renaming
+        let showSpinner = working && !showClose && !renaming
+        close.isHidden = !showClose
+        spinner.isHidden = !showSpinner
+        dot.isHidden = renaming || showClose || showSpinner
     }
 
     @objc private func closeClicked() {
@@ -427,8 +462,7 @@ final class SessionCellView: NSTableCellView {
         label.isHidden = true
         subtitle.isHidden = true
         hint.isHidden = true
-        dot.isHidden = true
-        close.isHidden = true
+        syncStatusSlot()
         window?.makeFirstResponder(editor)
         editor.currentEditor()?.selectAll(nil)
     }
@@ -441,8 +475,8 @@ final class SessionCellView: NSTableCellView {
         label.isHidden = false
         subtitle.isHidden = !twoLine
         hint.isHidden = hint.stringValue.isEmpty
-        dot.isHidden = false
-        close.isHidden = true
+        hovered = pointerIsInside
+        syncStatusSlot()
         applyTextColors()
     }
 

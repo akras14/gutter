@@ -11,9 +11,9 @@ enum MainMenu {
         appMenu.addItem(withTitle: "About Gutter",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        // Gutter's own config file (~/.config/gutter/config), not ghostty's -
-        // ⌘, and ⇧⌘, are the same keys ghostty binds for its config.
-        appMenu.addItem(withTitle: "Open Config...",
+        // Gutter's own config files (~/.config/gutter/{config,launchers}), not
+        // ghostty's - ⌘, and ⇧⌘, are the same keys ghostty binds for its config.
+        appMenu.addItem(withTitle: "Open Configs...",
                         action: #selector(AppDelegate.openConfigFile(_:)), keyEquivalent: ",").target = target
         let reload = appMenu.addItem(withTitle: "Reload Config",
                                      action: #selector(AppDelegate.reloadConfigFile(_:)), keyEquivalent: ",")
@@ -33,6 +33,13 @@ enum MainMenu {
                                       action: #selector(AppDelegate.renameTab(_:)), keyEquivalent: "R")
         rename.keyEquivalentModifierMask = [.command, .shift]
         rename.target = target
+        // cmd-shift-t: a new tab, but started on a request. VS Code has no
+        // "new terminal with profile" binding to copy, and its own cmd-shift-t
+        // (reopen closed editor) has no counterpart here.
+        let request = fileMenu.addItem(withTitle: "New Request...",
+                                       action: #selector(AppDelegate.newRequest(_:)), keyEquivalent: "T")
+        request.keyEquivalentModifierMask = [.command, .shift]
+        request.target = target
         fileMenu.addItem(withTitle: "Close Tab",
                          action: #selector(AppDelegate.closeTab(_:)), keyEquivalent: "w").target = target
         fileItem.submenu = fileMenu

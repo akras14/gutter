@@ -14,6 +14,7 @@ final class ShortcutsWindowController: NSWindowController {
     private static let sections: [(String, [Shortcut])] = [
         ("Tabs", [
             ("⌘T", "New tab"),
+            ("⇧⌘T", "New request (runs a tool in a new tab)"),
             ("⌘W", "Close tab (or the front window)"),
             ("⇧⌘R", "Rename tab"),
             ("⌘1 – ⌘9", "Select tab 1 to 9"),
