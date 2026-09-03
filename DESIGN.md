@@ -80,8 +80,8 @@ button on hover. The signals behind it, and why those and no others:
   title while working and prefixes the title with "✳" when it hands the
   session back. The spinner rides along in the row's title text for free;
   the "✳" prefix lights the dot. This is why Claude Code just works, and
-  why tools that write a static title (opencode's `OC | <session>`) show
-  nothing - the title is the only text channel libghostty reports.
+  why tools that write a static title (opencode's `OpenCode`) show nothing
+  - the title is the only text channel libghostty reports.
 - **The bell.** A BEL on a non-selected tab lights the dot.
 - **OSC 9;4 progress.** The ConEmu sequence Windows Terminal, iTerm2 and
   ghostty all read as "working"; libghostty surfaces it as the surface's
@@ -92,9 +92,36 @@ What was considered instead: opencode's attention notifications (OSC 99 /
 777 desktop notifications) were rejected as the spinner channel - they
 fire only on completion, ghostty 1.3.1's parser drops OSC 99 entirely (no
 parser state), and the vendored wrapper turns what remains into a macOS
-banner, not sidebar state. Sniffing output activity (iTerm2's tab spinner)
-is out: libghostty exposes no output callback, and per-frame redraws would
-keep every row spinning forever.
+banner, not sidebar state.
+
+### opencode reports nothing, and iTerm2 doesn't change that
+
+opencode shows no spinner and no dot, and it can't be made to with the
+channels above. A full turn captured off the pty (`script -q out opencode`,
+opencode 1.18.27) emits, in total: `OSC 0;OpenCode` three times - a static
+title that never changes while working - colour queries (`OSC 4/10/11/14-19`),
+an `OSC 99` capability *probe* (not a notification), `OSC 66` text sizing,
+and an `OSC 1337;Capabilities` probe. There is no `OSC 9;` of any kind and
+no standalone BEL: all 38 BELs in the capture are OSC terminators. The same
+holds statically - zero `]9;` bytes in the 144MB binary.
+
+The tab indicator opencode does light up in iTerm2 is not a progress
+protocol. The capture's one bulk signal is 508 `CSI ?2026h/l`
+synchronized-update pairs in a single turn: opencode simply repaints
+constantly, and iTerm2 derives its indicator terminal-side from output
+activity. Nothing is being reported, so there is nothing for a sidebar to
+read. Chasing iTerm2 parity means adopting its mechanism, not its protocol.
+
+Sniffing output activity that way is still not done here, but the reason is
+narrower than "impossible": libghostty *does* have an output-driven signal,
+`GHOSTTY_ACTION_RENDER` (`deps/include/ghostty.h`). It's the vendored
+wrapper that drops it - `Ghostty.App.swift`'s action switch handles
+`RENDER_INSPECTOR` and `RENDERER_HEALTH` but never `RENDER` - so `Sources/`
+can't see it. Reaching it means a fifth `vendor.sh` patch, in the same style
+as the four already there. The design objection stands on its own: a render
+signal fires per frame with no idle/busy distinction, so every row with a
+repainting TUI in it would spin forever. Debouncing it is guessing at
+liveness, which is what a real report exists to avoid.
 
 One caveat lives in the vendored wrapper, not here: a progress report that
 goes unrefreshed for 15s is cleared (`SurfaceView_AppKit.swift`), which
