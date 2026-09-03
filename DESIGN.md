@@ -70,6 +70,38 @@ every feature.
 When a feature seems to need more, the answer is usually a smaller feature that
 uses git alone - see the diff base picker below for how that played out.
 
+## The sidebar status slot
+
+Each row's leading slot shows one of three things: a spinner while the
+session is working, an orange dot when it wants the user, the row's close
+button on hover. The signals behind it, and why those and no others:
+
+- **Claude Code's title.** It writes a braille spinner into the terminal
+  title while working and prefixes the title with "✳" when it hands the
+  session back. The spinner rides along in the row's title text for free;
+  the "✳" prefix lights the dot. This is why Claude Code just works, and
+  why tools that write a static title (opencode's `OC | <session>`) show
+  nothing - the title is the only text channel libghostty reports.
+- **The bell.** A BEL on a non-selected tab lights the dot.
+- **OSC 9;4 progress.** The ConEmu sequence Windows Terminal, iTerm2 and
+  ghostty all read as "working"; libghostty surfaces it as the surface's
+  `progressReport`. A live report shows the spinner, and the report
+  clearing lights the dot - the same "handed back" edge as "✳".
+
+What was considered instead: opencode's attention notifications (OSC 99 /
+777 desktop notifications) were rejected as the spinner channel - they
+fire only on completion, ghostty 1.3.1's parser drops OSC 99 entirely (no
+parser state), and the vendored wrapper turns what remains into a macOS
+banner, not sidebar state. Sniffing output activity (iTerm2's tab spinner)
+is out: libghostty exposes no output callback, and per-frame redraws would
+keep every row spinning forever.
+
+One caveat lives in the vendored wrapper, not here: a progress report that
+goes unrefreshed for 15s is cleared (`SurfaceView_AppKit.swift`), which
+reads as the working -> idle edge. Emitters are expected to re-assert the
+report while busy; a send-once emitter shows a 15s spinner and an early
+dot.
+
 ## The diff view
 
 ### Side-by-side, meld-style
@@ -114,6 +146,74 @@ time, so plenty of repos don't have one.
 
 Both modes compare against the worktree, so both include whatever is still
 dirty.
+
+## Firing off requests
+
+`cmd-shift-t` opens a small sheet - folder, tool, prompt - and runs the tool in
+a new tab that does *not* take focus. It exists because the common case while
+running an agent is thinking of a second thing to ask, in the folder you are
+already in, without losing the tab you are in.
+
+### Not "clone this session"
+
+The first shape proposed was a clone button: duplicate the current session,
+same folder, same command. Two things killed it. libghostty exposes no pid, no
+tty and no running command for a surface (`command_finished` carries an exit
+code and a duration, nothing else), so "same command" can't be discovered - and
+reading it out of `ps` would mean guessing which process belongs to which
+surface. And once `cmd-t` inherits the working directory, cloning the *folder*
+stopped being worth a button.
+
+What was left is the part a terminal can't guess: which tool. So it's a
+launcher, not a clone.
+
+### A second config file
+
+Launchers live in `~/.config/gutter/launchers`, not in
+`~/.config/gutter/config`. That file is parsed by libghostty, which diagnoses
+keys it doesn't recognize, so Gutter cannot add its own to it. Same
+`key = value` syntax so the two read alike.
+
+A folder can claim a default tool (`launcher-for ~/projects = pclaude`), longest
+matching path first. The sheet preselects it and the popup is the override -
+the folder usually knows which harness you want, but not always.
+
+### The folder is a list, not a text field
+
+Typing a path is the rare case, so the sheet offers a popup instead: the folder
+you are in, then the folders your other tabs are in, then any `folder =` lines.
+The open tabs are what make the list worth having - a config-only list would
+hold two tree roots and nothing you'd actually run in. A folder that is in no
+tab and no config can't be picked, and the answer to that is a tab: `cmd-t`,
+`cd`, `cmd-shift-t`.
+
+### Typed into the shell, not spawned as the command
+
+The tool goes in as `initialInput` - text written into the session's shell -
+rather than the surface's `command`. Two reasons, and the first is decisive:
+`command` execs directly or through `/bin/sh -c`, and neither loads an
+interactive shell, so a tool that is a shell alias (`pclaude` is
+`CLAUDE_CONFIG_DIR=... claude`) cannot be run that way at all. The second is
+that a `command` surface dies when the command exits, while a shell one leaves
+you at a prompt in the right folder, which is where you want to be when the
+agent finishes.
+
+The prompt is single-quoted before it goes in. It is the user's prose, so
+apostrophes, quotes and `$` in it must never reach the shell as syntax.
+
+### The new tab doesn't take focus
+
+`newSession(select:)` exists for this. The pty spawns in `SurfaceView.init`, at
+the 800x600 frame the view starts with, so a session that is never shown still
+runs - the sidebar row lights its dot when the agent wants you, which is the
+reason for wanting a tab rather than `claude --bg` in the first place.
+
+### cmd-shift-t had to be unbound in ghostty first
+
+VS Code has no "new terminal with profile" binding to copy, so this one is
+invented. With a focused surface the ghostty core claimed the key and the menu
+item never fired, while the same keystroke worked with the sidebar focused -
+the same trap as `super+,`. `main.swift` unbinds it.
 
 ## Ideas, not built
 

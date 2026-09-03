@@ -24,6 +24,9 @@ if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCE
 // type only produces a "no application set to open the document" panel.
 // Unbind both so Gutter's own menu items (AppDelegate.openConfigFile /
 // reloadConfigFile) get the keystrokes.
+// super+shift+t is the same story: with a focused surface the core claimed the
+// key and File > New Request never fired, while the same keystroke worked with
+// the sidebar focused. Unbinding hands it to the menu from either place.
 // NOTE: don't override `command` here - repeated command keys append to the
 // default argv instead of replacing it.
 do {
@@ -32,6 +35,7 @@ do {
     keybind = super+9=goto_tab:9
     keybind = super+,=unbind
     keybind = super+shift+,=unbind
+    keybind = super+shift+t=unbind
     """
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-tabs-overrides.conf")
     try overrides.write(to: url, atomically: true, encoding: .utf8)

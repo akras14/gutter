@@ -17,6 +17,22 @@ creates it empty. Ghostty's own config files are never loaded - to inherit
 them, add `config-file = ?~/.config/ghostty/config` (or the path to
 `com.mitchellh.ghostty/config.ghostty`; `?` means "skip if missing").
 
+Launchers - the tools `cmd-shift-t` can start a request with - live in a
+separate file, `~/.config/gutter/launchers`, because libghostty parses the
+config above and rejects keys it doesn't know:
+
+```
+launcher = claude
+launcher = pclaude
+launcher-for ~/projects = pclaude
+folder = ~/src/screenings_app
+```
+
+One command per line, first is the default; `launcher-for` gives a folder tree
+its own, longest path winning. Commands are typed into the session's shell, so
+aliases work. The sheet's folder list is the folders your tabs are open in plus
+any `folder` lines.
+
 See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, layout, gotchas.
 
 ## Why this exists
@@ -61,7 +77,7 @@ main.swift            process setup: GHOSTTY_RESOURCES_DIR, ghostty_init, keybin
 selected surface, handing it first responder. `GhosttyBridge` translates libghostty
 notifications into session calls; it is the file to audit for API drift when ghostty is
 updated. A `Session` is a live `Ghostty.SurfaceView` plus sidebar state (title, activity
-dot) - the surface is the real terminal.
+dot, progress spinner) - the surface is the real terminal.
 
 ## Layout
 
@@ -184,6 +200,7 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 | Keys | Action |
 |---|---|
 | `cmd-t` / `cmd-w` | New tab / close tab (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory` |
+| `cmd-shift-t` | New request: pick a folder and a tool, type a prompt, run it in a new background tab |
 | `cmd-shift-r` | Rename tab |
 | `cmd-1..9` | Select tab N |
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |
