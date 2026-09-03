@@ -85,8 +85,11 @@ button on hover. The signals behind it, and why those and no others:
 - **The bell.** A BEL on a non-selected tab lights the dot.
 - **OSC 9;4 progress.** The ConEmu sequence Windows Terminal, iTerm2 and
   ghostty all read as "working"; libghostty surfaces it as the surface's
-  `progressReport`. A live report shows the spinner, and the report
-  clearing lights the dot - the same "handed back" edge as "✳".
+  `progressReport`. Only `.set` and `.indeterminate` spin. `.pause` and
+  `.error` are hand-offs, not work, and light the dot alongside a cleared
+  report - the same "handed back" edge as "✳". Reading a live report as
+  "working" regardless of state would spin through exactly the moment the
+  user is wanted, since `.pause` is how a tool says it is asking something.
 
 What was considered instead: opencode's attention notifications (OSC 99 /
 777 desktop notifications) were rejected as the spinner channel - they
@@ -94,7 +97,7 @@ fire only on completion, ghostty 1.3.1's parser drops OSC 99 entirely (no
 parser state), and the vendored wrapper turns what remains into a macOS
 banner, not sidebar state.
 
-### opencode reports nothing, and iTerm2 doesn't change that
+### opencode reports nothing on its own
 
 opencode shows no spinner and no dot, and it can't be made to with the
 channels above. A full turn captured off the pty (`script -q out opencode`,
@@ -111,6 +114,17 @@ synchronized-update pairs in a single turn: opencode simply repaints
 constantly, and iTerm2 derives its indicator terminal-side from output
 activity. Nothing is being reported, so there is nothing for a sidebar to
 read. Chasing iTerm2 parity means adopting its mechanism, not its protocol.
+
+The fix is upstream of Gutter and already exists. The community plugin
+`opencode-terminal-progress` emits real OSC 9;4 from opencode's plugin API,
+keyed off `TERM_PROGRAM`, which libghostty sets to `ghostty`
+(`termio/Exec.zig`) - so Gutter's surfaces are detected with no code on our
+side. It maps busy to `.indeterminate`, waiting-for-input to `.pause` and
+failure to `.error`, which is where the state mapping in the bullet above
+comes from. Asking opencode to emit this natively is a dead end worth not
+re-walking: it has been requested (anomalyco/opencode #24807) and the plugin
+proposed for the ecosystem page (#16453), and both were auto-closed as stale
+rather than judged; #44076 is the live one.
 
 Sniffing output activity that way is still not done here, but the reason is
 narrower than "impossible": libghostty *does* have an output-driven signal,
