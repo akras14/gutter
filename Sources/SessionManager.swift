@@ -182,18 +182,26 @@ final class SessionManager {
                 self.onListChanged?()
             }
 
-        // OSC 9;4 progress: a live report means the tool is working, and the
-        // report clearing (the tool's "remove", or the vendored wrapper's
-        // 15s expiry of an unrefreshed report) is the working -> idle edge
-        // that lights the dot - the progress equivalent of the "✳" title.
+        // OSC 9;4 progress. Only .set and .indeterminate mean the tool is
+        // working. .pause and .error are hand-offs, not work - opencode's
+        // progress plugin sends .pause for "waiting for input", which is
+        // precisely when the user is wanted - and so is a cleared report,
+        // whether that's the tool's own "remove" or the vendored wrapper's
+        // 15s expiry of an unrefreshed one. All of them light the dot rather
+        // than spin: the progress equivalent of the "✳" title.
         let progressSub = view.$progressReport
             .receive(on: RunLoop.main)
             .sink { [weak self] report in
                 guard let self, self.sessions.contains(where: { $0 === session }) else { return }
-                let working = report != nil
-                guard working != session.isWorking else { return }
+                let state = report?.state
+                let working = state == .set || state == .indeterminate
+                let finished = !working
+                // A .pause can arrive while already idle (the tool never
+                // reported work), so the dot has to key off both flags.
+                guard working != session.isWorking || finished != session.workFinished
+                else { return }
                 session.isWorking = working
-                session.workFinished = !working
+                session.workFinished = finished
                 self.updateReadySeen(session)
                 self.onListChanged?()
             }
