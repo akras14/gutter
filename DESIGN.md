@@ -222,6 +222,65 @@ time, so plenty of repos don't have one.
 Both modes compare against the worktree, so both include whatever is still
 dirty.
 
+### The branch base is picked, not only inferred
+
+Inferring the base from `origin/HEAD` assumes a PR targets the default branch.
+That is wrong for a stacked PR based on another branch, and for cases no PR
+host knows about, like diffing against a release branch. So branch mode carries
+a popup beside the toggle: the inferred default first, then every other branch,
+most recently committed to first - the branch you would stack on is one you
+were just working on. Capped at 40, because a repo that has been alive for
+years has hundreds of refs and a menu that long is a list, not a picker.
+
+The pick is remembered per repo root. It belongs to the repo rather than to a
+visit to it - a stacked branch keeps the same parent for as long as it is being
+worked on, and re-picking on every open would make the picker worse than the
+inference it replaces. It also has to be keyed that way: the diff window is a
+single reused window, so a pick held on the window alone would leak the last
+repo's base into the next one.
+
+The inference stays, as the fallback and as the self-healing path. A remembered
+branch that has since been deleted is not an error - it resolves back to the
+default, and the popup follows what resolved rather than showing a stale name.
+
+The tempting shortcut is `gh pr view --json baseRefName`, which reports the real
+base. Rejected: it would make Gutter depend on a tool that isn't part of macOS,
+needs its own auth, and only answers for GitHub. See "Self-contained" above.
+
+### The header says PR, not merge base
+
+Branch mode was first labelled in git's own terms - "vs merge base with
+origin/master at 4240eb3". It was accurate and it did not work. "Merge base"
+reads as one fixed thing, so a picker offering several branches beside it looks
+like it is offering several merge bases to choose between, and the honest
+question it produces is "which of these is *the* merge base?". There isn't one:
+a merge base is per pair, and this branch has a different one with every branch
+in the list.
+
+So the header states the outcome instead - `PR into origin/master` - and the
+left pane is captioned with the base branch, the way GitHub captions the left
+side of a PR diff. The merge base, the short sha and the "N commits since"
+count all still exist and are all in the label's tooltip, which is where they
+belong: they answer "why these files?", which is a second question, asked less
+often than the first.
+
+The window is used to answer "is this what my PR will show?". It should be
+readable without knowing what git calls the operation.
+
+### The file count owns the one difference from GitHub
+
+Branch mode is `merge-base(base, HEAD)` against the **worktree**, where GitHub
+compares it against the pushed head commit. Everything else matches - the file
+lists are identical when the tree is clean, which was checked against a real
+branch. The gap is uncommitted and untracked work, which Gutter deliberately
+includes (see "Branch mode compares against the merge base" above: an agent
+that commits mid-review must not blank the diff).
+
+A count that silently disagrees with the PR is worse than either behavior, so
+the header says which files those are: `5 files (2 not yet committed)`. It
+costs a second status call, taken only in branch mode and only when there is
+something to count.
+
 ## Firing off requests
 
 `cmd-shift-t` opens a small sheet - folder, tool, prompt - and runs the tool in
@@ -319,24 +378,6 @@ visible again. Everything the sidebar reads - titles, bells, progress - comes
 off the terminal, not the renderer, so an unselected session still lights its
 dot. It does not free the drawables already allocated, only stops feeding them,
 which lets macOS page out the idle ones.
-
-## Ideas, not built
-
-Considered and deferred, with the reasoning kept so it doesn't have to be
-rebuilt from scratch.
-
-### Choose the diff base
-
-Branch mode assumes a PR targets the default branch, which is wrong for a
-stacked PR based on another branch. The fix is to let the base be picked rather
-than inferred: the Branch side of the toggle becomes a small popup of candidate
-refs - default branch first, then other local and remote branches - remembered
-per repo. That also covers cases no PR host knows about, like diffing against a
-release branch.
-
-The tempting shortcut is `gh pr view --json baseRefName`, which reports the real
-base. Rejected: it would make Gutter depend on a tool that isn't part of macOS,
-needs its own auth, and only answers for GitHub. See "Self-contained" above.
 
 ## Open
 
