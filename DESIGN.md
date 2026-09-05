@@ -36,6 +36,21 @@ the sidebar rows, and focus handling with it.
 
 Don't re-propose this.
 
+### The right-click menu is trimmed, not rebuilt
+
+That menu comes from the vendored `SurfaceView.menu(for:)` and is ghostty's,
+written for ghostty's window shell. Four of its items - the splits and the
+terminal inspector - post notifications `GhosttyBridge` doesn't observe, so they
+looked live and did nothing. `GutterSurfaceView` subclasses the surface and
+filters them out of the menu `super` returns, and repoints "Change Tab Title..."
+(ghostty's terminal controller, only a stub in `Shims.swift`) at the sidebar
+rename. Subclassing rather than editing `Vendor/` keeps the fix on the right
+side of the vendoring line - see "Not a fork" above.
+
+Anything else the wrapper adds to that menu later arrives enabled by default.
+When a ghostty update lands, right-click once and check the new items do
+something here.
+
 ### Not competing with iTerm
 
 iTerm2 has had left-side tabs for years and wins on features. Gutter's niche is
