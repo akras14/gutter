@@ -20,6 +20,25 @@ This is why `Vendor/` and `deps/` are off limits: they are copied verbatim by
 `vendor.sh` and the next ghostty update overwrites them. A fix that seems to
 need an edit there is a fix in the wrong place.
 
+### The exception: `vendor.sh` patches
+
+`Vendor/` is off limits to hand edits, but `vendor.sh` may rewrite what it
+copies. Each patch is a Python block with `assert`s on the text it expects, so
+a ghostty update that moves the code fails the re-vendor loudly instead of
+silently dropping the fix. Five exist today. Keep them few, keep them small,
+and prefer a subclass in `Sources/` when one will do - see "The right-click
+menu is trimmed, not rebuilt".
+
+One of the five is not an embedder adaptation but a backport. Upstream's
+`CachedValue` (the 500ms cache behind the surface's accessibility methods)
+clears itself from a `Task` while the main thread reads it, and the racing
+release of a Swift `String`'s storage aborts the process. It crashed Gutter on
+2026-09-04 the first time macOS accessibility attached to a surface. The fix is
+upstream's own (ghostty PR #13646, an `NSLock` around the value and the task
+handle), merged after v1.3.1 and so absent from the released `libghostty` this
+links. Drop the patch when the linked release contains it - the `assert`s will
+still pass, so this is the only reminder.
+
 ### Not a product
 
 No splits, no session restore, no test suite. For a full-featured terminal, use
@@ -146,8 +165,8 @@ narrower than "impossible": libghostty *does* have an output-driven signal,
 `GHOSTTY_ACTION_RENDER` (`deps/include/ghostty.h`). It's the vendored
 wrapper that drops it - `Ghostty.App.swift`'s action switch handles
 `RENDER_INSPECTOR` and `RENDERER_HEALTH` but never `RENDER` - so `Sources/`
-can't see it. Reaching it means a fifth `vendor.sh` patch, in the same style
-as the four already there. The design objection stands on its own: a render
+can't see it. Reaching it means another `vendor.sh` patch, in the same style
+as the five already there. The design objection stands on its own: a render
 signal fires per frame with no idle/busy distinction, so every row with a
 repainting TUI in it would spin forever. Debouncing it is guessing at
 liveness, which is what a real report exists to avoid.

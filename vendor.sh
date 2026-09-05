@@ -158,4 +158,77 @@ p.write_text(s.replace(old, new))
 print("patched SurfaceView_AppKit.swift ghost title fallback")
 PYEOF
 
+# SurfaceView_AppKit.swift: make CachedValue thread-safe. Its 500ms expiry
+# Task clears `value` off the main thread while the accessibility methods
+# read it on main, so a String's storage can be released twice - the Swift
+# runtime aborts the process ("deallocated with non-zero retain count").
+# This is upstream's own fix (ghostty PR #13646, merged after v1.3.1); drop
+# this patch once the linked libghostty release contains it.
+python3 - "$DEST/Ghostty/Surface View/SurfaceView_AppKit.swift" <<'PYEOF'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+
+old = """class CachedValue<T> {
+    private var value: T?"""
+new = """class CachedValue<T> {
+    private let lock = NSLock()
+    private var value: T?"""
+assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
+s = s.replace(old, new)
+
+old = """    deinit {
+        expiryTask?.cancel()
+    }
+
+    func get() -> T {
+        if let value {"""
+new = """    deinit {
+        lock.lock()
+        expiryTask?.cancel()
+        lock.unlock()
+    }
+
+    func get() -> T {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let value {"""
+assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
+s = s.replace(old, new)
+
+old = """                try await Task.sleep(until: expires)
+                self?.value = nil
+                self?.expiryTask = nil
+            } catch {
+                // Task was cancelled, do nothing
+            }
+        }
+
+        return result
+    }
+}"""
+new = """                try await Task.sleep(until: expires)
+                self?.expire()
+            } catch {
+                // Task was cancelled, do nothing
+            }
+        }
+
+        return result
+    }
+
+    private func expire() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        value = nil
+        expiryTask = nil
+    }
+}"""
+assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
+p.write_text(s.replace(old, new))
+print("patched SurfaceView_AppKit.swift CachedValue locking")
+PYEOF
+
 echo "vendored $(find "$DEST" -name '*.swift' | wc -l | tr -d ' ') swift files from $GHOSTTY"
