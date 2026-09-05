@@ -148,7 +148,7 @@ final class SessionManager {
     @discardableResult
     func newSession(config: Ghostty.SurfaceConfiguration? = nil, select selectNew: Bool = true) -> Session? {
         guard let app = ghostty.app else { return nil }
-        let view = Ghostty.SurfaceView(app, baseConfig: config, uuid: nil)
+        let view = GutterSurfaceView(app, baseConfig: config, uuid: nil)
         let session = Session(view: view)
         sessions.append(session)
 
