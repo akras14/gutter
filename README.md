@@ -216,13 +216,18 @@ refresh, `cmd-w` close. A toggle in its header picks what the left pane is
 compared against:
 
 - **Uncommitted** - `HEAD` vs the worktree. What isn't committed yet.
-- **Branch** - the merge base with the default branch vs the worktree.
-  Everything a PR opened right now would carry, commits on the branch included,
-  plus whatever is still dirty.
+- **Branch** - what a pull request would show. The merge base with another
+  branch vs the worktree: every commit on this branch, plus whatever is still
+  dirty.
 
-The default branch is read from `origin/HEAD`, falling back to `origin/main`,
-`origin/master`, `main`, `master`. `DESIGN.md` explains why branch mode uses
-the merge base rather than the branch tip.
+Branch mode puts a popup beside the toggle for which branch the PR targets: the
+default first, then every other branch, most recently committed to first. Pick
+one for a stacked PR or a release branch, and it is remembered for that repo.
+The file list matches GitHub's "Files changed" exactly, except that Gutter also
+shows work you haven't committed - the header counts those separately. The default is read from `origin/HEAD`, falling back to `origin/main`,
+`origin/master`, `main`, `master`; a remembered branch that has since been
+deleted falls back to it too. `DESIGN.md` explains why branch mode uses the
+merge base rather than the branch tip.
 
 Mouse in the sidebar: drag a row to reorder sessions (`cmd-1..9` follow the new
 order), hover a row for a close button in place of its activity dot, swipe left

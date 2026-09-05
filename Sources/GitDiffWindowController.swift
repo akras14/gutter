@@ -32,6 +32,23 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     /// per file - a branch moving mid-review would otherwise mix two bases.
     private var baseRev = "HEAD"
     private let baseToggle = NSSegmentedControl()
+    /// The left pane's caption. Updated per load: the left pane is HEAD in
+    /// uncommitted mode but the fork point in branch mode, and a caption stuck
+    /// on "HEAD" is exactly the two-dot misreading the header works to avoid.
+    private lazy var leftPaneLabel = paneTitle("HEAD")
+    /// Which ref branch mode compares against. Only shown in branch mode -
+    /// there is nothing to pick when the base is HEAD.
+    private let baseRefPopup = NSPopUpButton()
+    /// Root of the repo on screen, and the key `baseRefByRepo` is stored under.
+    /// nil until a load finds a repo, which is what the popup waits for.
+    private var repoRoot: String?
+    /// The picked base ref per repo root. Remembered because the answer is a
+    /// property of the repo, not of a visit to it: a stacked branch keeps the
+    /// same parent for as long as it is being worked on, and re-picking it on
+    /// every open would make the picker worse than the inference it replaces.
+    private var baseRefByRepo: [String: String] =
+        UserDefaults.standard.dictionary(forKey: baseRefDefaultsKey) as? [String: String] ?? [:]
+    private static let baseRefDefaultsKey = "Gutter Git Diff Base Refs"
     /// Kept across refreshes so a reload doesn't jump back to the first file.
     private var selectedPath: String?
     /// Bumped on every load; a result carrying a stale token is dropped, so a
@@ -91,12 +108,21 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         baseToggle.setLabel("Uncommitted", forSegment: 0)
         baseToggle.setLabel("Branch", forSegment: 1)
         baseToggle.setToolTip("Changes not yet committed", forSegment: 0)
-        baseToggle.setToolTip("Everything a PR opened now would carry", forSegment: 1)
+        baseToggle.setToolTip("The merge base with a branch: everything a PR opened now would carry",
+                              forSegment: 1)
         baseToggle.selectedSegment = 0
         baseToggle.target = self
         baseToggle.action = #selector(baseChanged(_:))
 
-        let header = NSStackView(views: [pathLabel, baseToggle, previous, next, refresh])
+        baseRefPopup.target = self
+        baseRefPopup.action = #selector(baseRefChanged(_:))
+        baseRefPopup.toolTip = "Compare against the merge base with this branch"
+        baseRefPopup.isHidden = true
+        // A long ref name would otherwise stretch the popup across the header
+        // and squeeze out the path label.
+        baseRefPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
+
+        let header = NSStackView(views: [pathLabel, baseToggle, baseRefPopup, previous, next, refresh])
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
@@ -190,7 +216,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         leftScroll = makePane(leftView)
         rightScroll = makePane(rightView)
 
-        let left = stackedPane(title: paneTitle("HEAD"), scroll: leftScroll)
+        let left = stackedPane(title: leftPaneLabel, scroll: leftScroll)
         let right = stackedPane(title: paneTitle("Working tree"), scroll: rightScroll)
 
         // The map strip sits where the divider would be: it is the divider,
@@ -324,6 +350,17 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let picked: GitDiff.Base = baseToggle.selectedSegment == 1 ? .branch : .uncommitted
         guard picked != base else { return }
         base = picked
+        baseRefPopup.isHidden = picked != .branch
+        reload(nil)
+    }
+
+    /// Picking a base is per repo and sticks. Nothing to do until a load has
+    /// told us which repo we are in.
+    @objc private func baseRefChanged(_ sender: Any?) {
+        guard let repoRoot, let ref = baseRefPopup.titleOfSelectedItem,
+              baseRefByRepo[repoRoot] != ref else { return }
+        baseRefByRepo[repoRoot] = ref
+        UserDefaults.standard.set(baseRefByRepo, forKey: Self.baseRefDefaultsKey)
         reload(nil)
     }
 
@@ -349,25 +386,53 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         loadToken += 1
         let token = loadToken
         let base = self.base
+        // The remembered pick is keyed by repo root, which takes a git call to
+        // learn, so the whole map goes along and the lookup happens once the
+        // root is known. The window is reused across sessions, so the previous
+        // directory's ref must not carry into a different repo.
+        let remembered = baseRefByRepo
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard FileManager.default.fileExists(atPath: directory) else {
                 DispatchQueue.main.async {
-                    self?.finishLoad(token, repo: nil, baseline: nil, changes: [])
+                    self?.finishLoad(token, repo: nil, baseline: nil, changes: [],
+                                     candidates: [], uncommitted: 0)
                 }
                 return
             }
             let repo = GitDiff.repo(at: directory)
-            let baseline = repo == nil ? nil : GitDiff.baseline(base, in: directory)
+            let preferred = repo.flatMap { remembered[$0.root] }
+            let baseline = repo == nil
+                ? nil
+                : GitDiff.baseline(base, preferredRef: preferred, in: directory)
             let changes = baseline.map { GitDiff.changes(in: directory, since: $0.rev) } ?? []
+            // The single way branch mode differs from GitHub's Files changed:
+            // the panes read the worktree, so work that isn't committed is
+            // folded in. Counting it lets the header own the difference
+            // instead of leaving the file count quietly disagreeing with the
+            // PR. Costs a second status call, so only where it can differ.
+            var uncommitted = 0
+            if base == .branch, !changes.isEmpty {
+                let dirty = Set(GitDiff.changes(in: directory, since: "HEAD").map(\.path))
+                uncommitted = changes.filter { dirty.contains($0.path) }.count
+            }
+            // Only branch mode has a base to pick, and listing every ref costs
+            // a git call, so uncommitted mode doesn't pay for it.
+            let candidates = repo != nil && base == .branch
+                ? GitDiff.candidateRefs(in: directory)
+                : []
             DispatchQueue.main.async {
-                self?.finishLoad(token, repo: repo, baseline: baseline, changes: changes)
+                self?.finishLoad(token, repo: repo, baseline: baseline, changes: changes,
+                                 candidates: candidates, uncommitted: uncommitted)
             }
         }
     }
 
     private func finishLoad(_ token: Int, repo: GitDiff.Repo?, baseline: GitDiff.Baseline?,
-                            changes: [GitDiff.FileChange]) {
+                            changes: [GitDiff.FileChange], candidates: [String],
+                            uncommitted: Int) {
         guard token == loadToken, let directory else { return }
+        repoRoot = repo?.root
+        fillBaseRefPopup(candidates, selecting: baseline?.name)
         guard let repo else {
             self.changes = []
             fileTable.reloadData()
@@ -388,7 +453,8 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
                 that exists. A repo with no remote and no default branch - or \
                 one whose history has nothing in common with it - has no answer.
 
-                Switch back to Uncommitted to see the working tree.
+                Pick a branch from the popup beside the toggle, if this repo \
+                has one, or switch back to Uncommitted to see the working tree.
                 """)
             return
         }
@@ -399,8 +465,33 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
         var summary = (repo.root as NSString).abbreviatingWithTildeInPath
         if let branch = repo.branch { summary += "  ·  \(branch)" }
-        summary += "  ·  vs \(baseline.name)"
+        summary += "  ·  \(baseline.label)"
         summary += changes.count == 1 ? "  ·  1 file" : "  ·  \(changes.count) files"
+        if uncommitted > 0 { summary += " (\(uncommitted) not yet committed)" }
+        switch base {
+        case .uncommitted:
+            leftPaneLabel.stringValue = "HEAD"
+            pathLabel.toolTip = "The left pane is HEAD, the right pane the worktree."
+        case .branch:
+            // GitHub labels the left side of a PR diff with the base branch,
+            // so this does too. The commit it actually reads from is in the
+            // tooltip, for when that is the question.
+            leftPaneLabel.stringValue = baseline.name
+            var tip = "The files a pull request into \(baseline.name) would show: "
+                + "your branch since \(baseline.shortRev), the last commit the two still share."
+            if baseline.behind > 0 {
+                let n = baseline.behind
+                tip += " \(baseline.name) has \(n) commit\(n == 1 ? "" : "s") since then, "
+                    + "which a PR would not count as your work, so they are not changes here."
+            }
+            if uncommitted == 1 {
+                tip += " One file here isn't committed yet, so a PR wouldn't show it."
+            } else if uncommitted > 1 {
+                tip += " \(uncommitted) files here aren't committed yet, "
+                    + "so a PR wouldn't show them."
+            }
+            pathLabel.toolTip = tip
+        }
         pathLabel.stringValue = summary
 
         guard !changes.isEmpty else {
@@ -425,6 +516,34 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         fileTable.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         fileTable.scrollRowToVisible(index)
         showFile(at: index)
+    }
+
+    /// The picker shows what the load actually resolved to, which isn't always
+    /// what was remembered: `GitDiff.baseline` falls back to the inferred
+    /// default when a picked branch has been deleted, and the popup follows it
+    /// rather than keeping a stale name selected.
+    private func fillBaseRefPopup(_ candidates: [String], selecting current: String?) {
+        baseRefPopup.isHidden = base != .branch
+        guard base == .branch else { return }
+
+        var items = candidates
+        // The resolved base belongs in the list even when `candidateRefs`
+        // skipped it - sitting on `main` in a repo with no remote resolves to
+        // `main`, which it drops as the current branch.
+        if let current, !items.contains(current) { items.insert(current, at: 0) }
+        baseRefPopup.removeAllItems()
+        baseRefPopup.addItems(withTitles: items)
+        let fork = NSImage(systemSymbolName: "arrow.triangle.branch",
+                           accessibilityDescription: "branch to fork from")
+        for item in baseRefPopup.itemArray { item.image = fork }
+        baseRefPopup.isEnabled = !items.isEmpty
+        // Nothing resolved: show no selection rather than the first ref, which
+        // would read as the base being used.
+        if let current {
+            baseRefPopup.selectItem(withTitle: current)
+        } else {
+            baseRefPopup.selectItem(at: -1)
+        }
     }
 
     private func showFile(at index: Int) {

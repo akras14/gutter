@@ -68,19 +68,32 @@ enum GitDiff {
 
     /// Which revision the left pane reads from. The right pane is always the
     /// worktree, so both of these include whatever is still dirty.
-    enum Base {
+    enum Base: Equatable {
         /// HEAD: only what hasn't been committed yet.
         case uncommitted
-        /// The merge base with the default branch: everything a PR opened
-        /// right now would carry, commits on the branch included.
+        /// The merge base with a branch: everything a PR opened right now
+        /// would carry, commits on this branch included. Which branch is
+        /// `baseline`'s `preferredRef`, or the inferred default.
         case branch
     }
 
-    /// A resolved `Base` - the rev to read file contents from, plus the name
-    /// to show for it in the header.
+    /// A resolved `Base` - the rev to read file contents from, the ref it came
+    /// from, and how to say that in the header.
     struct Baseline {
         let rev: String
+        /// The ref itself, for prose that already has "merge base" around it.
         let name: String
+        /// What the header says, in the terms the window is actually used to
+        /// answer: "is this what my PR will show?". Naming the merge base is
+        /// how git describes this comparison, and it sent the one person who
+        /// uses Gutter looking for a second merge base to tell it apart from.
+        /// The plumbing moved to the tooltip; the header states the outcome.
+        let label: String
+        /// The merge base itself, short. For the tooltip and the pane caption.
+        let shortRev: String
+        /// Commits the base ref has gained since the fork - the ones a PR
+        /// would not attribute to this branch. Zero on `.uncommitted`.
+        let behind: Int
     }
 
     /// Names to try when `origin/HEAD` is missing, which is common: git only
@@ -91,19 +104,84 @@ enum GitDiff {
     /// nil when the base can't be worked out - no remote, no default branch,
     /// or histories with no common ancestor. Runs git, so keep it off the main
     /// thread.
-    static func baseline(_ base: Base, in directory: String) -> Baseline? {
+    ///
+    /// `preferredRef` is the base picked for this repo, if any. It is verified
+    /// before use: a branch that has since been deleted or renamed falls back
+    /// to the inferred default instead of leaving the window on an error, and
+    /// the picker then shows what it fell back to.
+    static func baseline(_ base: Base, preferredRef: String? = nil, in directory: String) -> Baseline? {
         switch base {
         case .uncommitted:
-            return Baseline(rev: "HEAD", name: "HEAD")
+            return Baseline(rev: "HEAD", name: "HEAD", label: "vs HEAD",
+                            shortRev: "HEAD", behind: 0)
         case .branch:
-            guard let ref = defaultRef(in: directory) else { return nil }
+            guard let ref = verified(preferredRef, in: directory) ?? defaultRef(in: directory)
+            else { return nil }
             // merge-base, not the ref itself: a two-dot diff against the tip
             // would also show every commit the default branch gained since we
             // branched, backwards, as deletions we never made.
             guard case let (sha, 0)? = run(["merge-base", ref, "HEAD"], in: directory),
                   !sha.trimmed.isEmpty else { return nil }
-            return Baseline(rev: sha.trimmed, name: ref)
+            let fork = sha.trimmed
+            // How far the base ref has moved on since the fork - the commits a
+            // PR into it would not show as this branch's work.
+            let behind = run(["rev-list", "--count", "\(fork)..\(ref)"], in: directory)
+                .flatMap { $0.1 == 0 ? Int($0.0.trimmed) : nil } ?? 0
+            return Baseline(rev: fork, name: ref, label: "PR into \(ref)",
+                            shortRev: String(fork.prefix(7)), behind: behind)
         }
+    }
+
+    /// Refs worth offering as a branch base: the inferred default first, then
+    /// every other branch, most recently committed to first - the branch you
+    /// would stack on is one you were just working on.
+    ///
+    /// The current branch is left out: its merge base with itself is itself,
+    /// so the diff would always be empty. So is `origin/HEAD`, a symref alias
+    /// for the default that would otherwise appear twice under two names.
+    /// Runs git, so keep it off the main thread.
+    ///
+    /// Asks for full refnames rather than `%(refname:short)`, because the short
+    /// form of `refs/remotes/origin/HEAD` is bare `origin` - which no suffix
+    /// test recognizes as the alias it is. Shortening here is a prefix strip,
+    /// which is all the two namespaces below need.
+    static func candidateRefs(in directory: String) -> [String] {
+        let current = run(["rev-parse", "--abbrev-ref", "HEAD"], in: directory)
+            .flatMap { $0.1 == 0 ? $0.0.trimmed : nil }
+
+        var refs: [String] = []
+        var seen = Set<String>()
+        func add(_ ref: String) {
+            guard !ref.isEmpty, ref != current, seen.insert(ref).inserted else { return }
+            refs.append(ref)
+        }
+
+        if let ref = defaultRef(in: directory) { add(ref) }
+        if case let (out, 0)? = run(["for-each-ref", "--sort=-committerdate",
+                                     "--format=%(refname)", "refs/heads", "refs/remotes"],
+                                    in: directory) {
+            for line in out.split(separator: "\n") {
+                let full = String(line).trimmed
+                guard !full.hasSuffix("/HEAD") else { continue }
+                for prefix in ["refs/heads/", "refs/remotes/"] where full.hasPrefix(prefix) {
+                    add(String(full.dropFirst(prefix.count)))
+                }
+                if refs.count >= candidateRefLimit { break }
+            }
+        }
+        return refs
+    }
+
+    /// A repo that has been alive for years has hundreds of refs, and a menu
+    /// that long is a list, not a picker. The sort puts the useful ones first,
+    /// so the tail is what gets cut.
+    private static let candidateRefLimit = 40
+
+    private static func verified(_ ref: String?, in directory: String) -> String? {
+        guard let ref, !ref.isEmpty,
+              run(["rev-parse", "--verify", "--quiet", ref], in: directory)?.1 == 0
+        else { return nil }
+        return ref
     }
 
     private static func defaultRef(in directory: String) -> String? {
