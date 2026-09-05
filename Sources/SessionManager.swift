@@ -85,6 +85,11 @@ final class Session {
     /// Pending debounced branch check. See `SessionManager.scheduleBranchCheck`.
     fileprivate var branchCheck: DispatchWorkItem?
 
+    /// Last occlusion state handed to libghostty. See
+    /// `SessionManager.syncOcclusion`. nil until the first sync, so the first
+    /// one always sends.
+    fileprivate var rendererVisible: Bool?
+
     fileprivate init(view: Ghostty.SurfaceView) {
         self.id = view.id
         self.view = view
@@ -122,6 +127,10 @@ final class SessionManager {
     private(set) var sessions: [Session] = []
     private(set) var selected: Session?
 
+    /// Whether the main window is on screen. Half of the occlusion decision;
+    /// `selected` is the other half. See `syncOcclusion`.
+    private var windowVisible = true
+
     var onListChanged: (() -> Void)?
     var onSelectionChanged: ((Session?) -> Void)?
     var onEmpty: (() -> Void)?
@@ -151,6 +160,7 @@ final class SessionManager {
         let view = GutterSurfaceView(app, baseConfig: config, uuid: nil)
         let session = Session(view: view)
         sessions.append(session)
+        syncOcclusion()
 
         // Shell-driven title (SurfaceView coalesces updates internally).
         let titleSub = view.$title
@@ -289,10 +299,47 @@ final class SessionManager {
     func select(_ session: Session?) {
         guard session !== selected else { return }
         selected = session
+        syncOcclusion()
         session?.hasActivity = false
         if let session { updateReadySeen(session) }
         onSelectionChanged?(session)
         onListChanged?()
+    }
+
+    /// The window went on or off screen - minimized, hidden, or fully covered.
+    func setWindowVisible(_ visible: Bool) {
+        guard windowVisible != visible else { return }
+        windowVisible = visible
+        syncOcclusion()
+    }
+
+    /// Tell libghostty which surfaces are actually being looked at: only the
+    /// selected one, and only while the window is on screen.
+    ///
+    /// Without this, libghostty draws every surface it has, at full render
+    /// thread QoS, forever - a background session with a busy agent in it
+    /// paints frames into a layer that is not in any view hierarchy, and its
+    /// window-sized Metal drawables stay resident because they keep being
+    /// presented. Eleven sessions measured ~960MB of IOSurface that way.
+    ///
+    /// ghostty's own shell makes this call from
+    /// `BaseTerminalController.windowDidChangeOcclusionState`, which lives in
+    /// its app target - `vendor.sh` copies the wrapper, not that, so nothing
+    /// here made the call and every surface stayed "visible" (the core's
+    /// default, `renderer/Thread.zig`).
+    ///
+    /// It pauses drawing and nothing else: the pty keeps running, the terminal
+    /// keeps updating, the sidebar keeps lighting its dot, and the core queues
+    /// a redraw the instant a surface becomes visible again. A session that is
+    /// never selected still works exactly as it did.
+    private func syncOcclusion() {
+        for session in sessions {
+            let visible = windowVisible && session === selected
+            guard session.rendererVisible != visible,
+                  let surface = session.view.surface else { continue }
+            ghostty_surface_set_occlusion(surface, visible)
+            session.rendererVisible = visible
+        }
     }
 
     /// Visiting a tab marks its current ready state as read; a tab that is no
