@@ -290,6 +290,36 @@ invented. With a focused surface the ghostty core claimed the key and the menu
 item never fired, while the same keystroke worked with the sidebar focused -
 the same trap as `super+,`. `main.swift` unbinds it.
 
+## Only what you are looking at renders
+
+libghostty draws every surface it holds, at full render-thread QoS, until told
+otherwise. Gutter keeps one live surface per session forever and swaps which
+one is in the view hierarchy, so without a signal every background session
+paints frames into a detached layer for as long as its agent is busy, and each
+one's window-sized Metal drawables stay resident because they keep being
+presented. Measured on 11 sessions: 45 IOSurfaces at 21.4MB each, 964MB of a
+1.3GB footprint.
+
+The signal is `ghostty_surface_set_occlusion`. ghostty's own shell makes the
+call from `BaseTerminalController.windowDidChangeOcclusionState` - an app-target
+file `vendor.sh` doesn't copy, since it only copies the wrapper - so Gutter
+inherited the C API and none of its callers, and every surface stayed at the
+core's default of visible.
+
+`SessionManager.syncOcclusion` is that call, over both halves of "is anyone
+looking at this": the session is selected, and the window is on screen
+(`MainWindowController.windowDidChangeOcclusionState`). Ghostty only has the
+second half, because its tabs are separate windows; Gutter's are not, so the
+selection half is ours.
+
+This is a rendering signal and nothing more. `renderer/Thread.zig` drops the
+thread to `.utility` and skips the draw; the pty keeps running, the terminal
+keeps updating, and the core queues a redraw the moment a surface becomes
+visible again. Everything the sidebar reads - titles, bells, progress - comes
+off the terminal, not the renderer, so an unselected session still lights its
+dot. It does not free the drawables already allocated, only stops feeding them,
+which lets macOS page out the idle ones.
+
 ## Ideas, not built
 
 Considered and deferred, with the reasoning kept so it doesn't have to be

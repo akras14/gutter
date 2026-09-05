@@ -129,6 +129,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     }
 }
 
+// Rendering follows the window: minimized, hidden behind another app, or fully
+// covered, and nothing draws. `SessionManager.syncOcclusion` owns the other
+// half of that decision - which session is selected - and the reasoning.
+extension MainWindowController {
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        sessions.setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+    }
+}
+
 // Fullscreen chrome: the top bar auto-hides for the duration of native
 // fullscreen and slides back when the pointer reaches the top edge.
 extension MainWindowController {
