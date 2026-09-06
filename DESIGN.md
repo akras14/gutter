@@ -312,6 +312,43 @@ the header says which files those are: `5 files (2 not yet committed)`. It
 costs a second status call, taken only in branch mode and only when there is
 something to count.
 
+### It says when it has gone stale, and doesn't reload itself
+
+The window is open while an agent is writing, so what it shows goes out of date
+under the reader - and until it says so, the only symptom is a diff quietly
+describing a tree that has moved on. A `RepoWatcher` (FSEvents on the repo
+root, live only while the window is open) puts a dot on the Refresh button when
+something changes.
+
+It stops there. A reload re-renders both panes from the top, and the panes hold
+whole files - so refreshing behind someone reading a long file would lose their
+place, which is exactly what `cmd-[` / `cmd-]` and the change map exist to
+protect. The hint is the new information; `cmd-r` stays the only thing that
+changes what is on screen. If a reload ever preserved scroll position, this
+would be worth revisiting.
+
+Two filters stand between the raw event stream and that dot, and both are
+load-bearing:
+
+- **Most of `.git` is ignored.** `git status` and `git diff` rewrite the
+  index's stat cache, so a load's own git calls fire events - watching the
+  index would relight the dot moments after every refresh. What counts inside
+  `.git` is what a commit or a checkout moves: `logs/`, `refs/`, `HEAD`,
+  `packed-refs`. That case matters most, since in uncommitted mode a commit
+  empties the diff outright.
+- **Ignored paths don't count.** A repo with a dev server or a `node_modules`
+  writes constantly to paths git is told to ignore, and a dot that is always lit
+  is a dot nobody reads. `GitDiff.containsUnignored` asks
+  `git check-ignore -z --stdin` about the batch - one small git call per burst,
+  not a scan of the repo.
+
+Verified against a scratch repo: a tracked edit lights it, a write under an
+ignored directory doesn't, a `git status` doesn't, a commit does.
+
+The dot is path-based, not content-based, so writing a file with the content it
+already had still lights it. Asking whether the *diff* changed means diffing,
+which is the reload this deliberately doesn't do.
+
 ## Firing off requests
 
 `cmd-shift-t` opens a small sheet - folder, tool, prompt - and runs the tool in
