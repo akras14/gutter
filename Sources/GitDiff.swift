@@ -233,6 +233,34 @@ enum GitDiff {
         return byPath.values.sorted { $0.path < $1.path }
     }
 
+    /// Whether any of these paths is one git would care about - i.e. not
+    /// ignored. `RepoWatcher` reports every write under the repo, and a repo
+    /// with a dev server or a `node_modules` in it writes constantly to paths
+    /// its `.gitignore` covers; a "this has changed" hint that lights for
+    /// those is a hint nobody reads.
+    ///
+    /// One git call per coalesced batch, over a handful of paths - it doesn't
+    /// scan the repo, so it stays cheap while an agent is writing. Runs git,
+    /// so keep it off the main thread.
+    static func containsUnignored(_ paths: [String], in directory: String) -> Bool {
+        guard !paths.isEmpty else { return false }
+        // check-ignore prints back the paths it would ignore and exits 1 when
+        // that is none of them. Anything else - 128 for a path outside the
+        // repo, or no git at all - is an unknown, and an unknown is worth a
+        // hint the user can dismiss with one refresh.
+        //
+        // The list goes in on stdin: -z is only accepted with --stdin, and
+        // without -z git C-quotes any path with a space or a quote in it, so
+        // the paths that came back could no longer be matched against the ones
+        // that went in.
+        let stdin = Data(paths.map { $0 + "\0" }.joined().utf8)
+        guard let (out, status) = run(["check-ignore", "-z", "--stdin"], in: directory, input: stdin),
+              status == 0
+        else { return true }
+        let ignored = Set(out.split(separator: "\0").map(String.init))
+        return paths.contains { !ignored.contains($0) }
+    }
+
     /// Both sides of one file, aligned into rows. Runs git, so keep it off the
     /// main thread.
     static func diff(_ change: FileChange, in directory: String, since rev: String) -> FileDiff {
@@ -420,12 +448,16 @@ enum GitDiff {
 
     /// (stdout, exit status), or nil if git could not be launched. stderr is
     /// dropped: every failure here is reported through the status.
-    static func run(_ args: [String], in directory: String) -> (String, Int32)? {
-        guard let (data, status) = runRaw(args, in: directory) else { return nil }
+    static func run(_ args: [String], in directory: String, input: Data? = nil) -> (String, Int32)? {
+        guard let (data, status) = runRaw(args, in: directory, input: input) else { return nil }
         return (String(data: data, encoding: .utf8) ?? "", status)
     }
 
-    static func runRaw(_ args: [String], in directory: String) -> (Data, Int32)? {
+    /// `input` is for the handful of git commands that read a path list on
+    /// stdin. It is written and closed before the output is read, which is
+    /// safe only because those lists are small - a write big enough to fill
+    /// the pipe would block here while git blocks on its own full output pipe.
+    static func runRaw(_ args: [String], in directory: String, input: Data? = nil) -> (Data, Int32)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = args
@@ -433,11 +465,20 @@ enum GitDiff {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
+        let stdin = input != nil ? Pipe() : nil
+        if let stdin {
+            process.standardInput = stdin
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         do {
             try process.run()
         } catch {
             return nil
+        }
+        if let stdin, let input {
+            try? stdin.fileHandleForWriting.write(contentsOf: input)
+            try? stdin.fileHandleForWriting.close()
         }
         // Read before waiting: a pipe that fills up blocks git forever.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()

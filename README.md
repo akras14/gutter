@@ -218,7 +218,10 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 | `cmd-shift-/` | Keyboard shortcuts |
 
 In the changes window: `cmd-]` / `cmd-[` next and previous change, `cmd-r`
-refresh, `cmd-w` close. A toggle in its header picks what the left pane is
+refresh, `cmd-w` close. The Refresh button takes a dot when the repo changes
+underneath it - a file written, a commit made - and `cmd-r` clears it. The
+window never reloads itself: that would lose your place in the file you are
+reading. A toggle in its header picks what the left pane is
 compared against:
 
 - **Uncommitted** - `HEAD` vs the worktree. What isn't committed yet.

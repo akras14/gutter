@@ -12,7 +12,8 @@ import AppKit
 /// `GitDiff` does all the git work and the line alignment; this file is only
 /// AppKit - a table, two text views, and the scroll sync that keeps them
 /// locked together.
-final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate,
+                                     NSWindowDelegate {
     private let pathLabel = NSTextField(labelWithString: "")
     private let fileTable = NSTableView()
     private let leftView = NSTextView()
@@ -51,6 +52,16 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private static let baseRefDefaultsKey = "Gutter Git Diff Base Refs"
     /// Kept across refreshes so a reload doesn't jump back to the first file.
     private var selectedPath: String?
+    /// Watches the repo on screen. Live only while the window is open: a hidden
+    /// window has nothing to keep current, and the git call below shouldn't run
+    /// for one.
+    private lazy var watcher = RepoWatcher { [weak self] paths in
+        self?.repoChanged(paths)
+    }
+    /// Set when something git cares about has changed since this was loaded.
+    /// The window says so and stops there - see `markStale`.
+    private var isStale = false
+    private let refreshButton = NSButton(title: "Refresh", target: nil, action: nil)
     /// Bumped on every load; a result carrying a stale token is dropped, so a
     /// slow file can't overwrite the pane after the user picked another one.
     private var loadToken = 0
@@ -94,10 +105,14 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         pathLabel.lineBreakMode = .byTruncatingHead
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let refresh = NSButton(title: "Refresh", target: self, action: #selector(reload(_:)))
-        refresh.bezelStyle = .rounded
-        refresh.keyEquivalent = "r"
-        refresh.keyEquivalentModifierMask = [.command]
+        refreshButton.target = self
+        refreshButton.action = #selector(reload(_:))
+        refreshButton.bezelStyle = .rounded
+        refreshButton.keyEquivalent = "r"
+        refreshButton.keyEquivalentModifierMask = [.command]
+        refreshButton.toolTip = "Re-read the working tree (⌘R)"
+        // windowWillClose stops the watcher; nothing else here needs a delegate.
+        window.delegate = self
 
         let previous = navButton("chevron.up", "Previous Change (⌘[)", "[", #selector(previousChange(_:)))
         let next = navButton("chevron.down", "Next Change (⌘])", "]", #selector(nextChange(_:)))
@@ -122,7 +137,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         // and squeeze out the path label.
         baseRefPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
 
-        let header = NSStackView(views: [pathLabel, baseToggle, baseRefPopup, previous, next, refresh])
+        let header = NSStackView(views: [pathLabel, baseToggle, baseRefPopup, previous, next, refreshButton])
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
@@ -346,6 +361,15 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         reload(nil)
     }
 
+    /// ⌘W hides this window and the shortcut brings the same one back, so the
+    /// watcher has to go down with it: nothing on screen to keep current, and
+    /// no reason to run git for a window nobody has open. The next load starts
+    /// it again.
+    func windowWillClose(_ notification: Notification) {
+        watcher.stop()
+        markStale(false)
+    }
+
     @objc private func baseChanged(_ sender: Any?) {
         let picked: GitDiff.Base = baseToggle.selectedSegment == 1 ? .branch : .uncommitted
         guard picked != base else { return }
@@ -365,6 +389,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     }
 
     @objc private func reload(_ sender: Any?) {
+        markStale(false)
         guard let directory else {
             pathLabel.stringValue = "no directory"
             changes = []
@@ -427,11 +452,73 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         }
     }
 
+    /// A batch of paths from the watcher. The window never reloads itself on
+    /// one: a reload re-renders both panes from the top, so doing it while
+    /// someone is reading would lose their place in a file that can be
+    /// thousands of lines long - the whole-file panes make scroll position the
+    /// thing you'd lose. It marks the button instead and leaves ⌘R the only
+    /// thing that changes what is on screen.
+    private func repoChanged(_ paths: [String]) {
+        // Already lit: nothing to learn, and no reason to pay for another git
+        // call while an agent writes.
+        guard !isStale, let directory, window?.isVisible == true else { return }
+
+        var refsMoved = false
+        var candidates: [String] = []
+        for path in paths {
+            guard let git = path.range(of: "/.git/") else {
+                if !path.hasSuffix("/.git") { candidates.append(path) }
+                continue
+            }
+            // Inside .git, only what a commit or a checkout moves counts. The
+            // index is the one to leave alone: git rewrites its stat cache
+            // during the very `git diff` a load runs, so watching it would
+            // relight the hint on every refresh.
+            let inside = path[git.upperBound...]
+            if inside.hasPrefix("logs/") || inside.hasPrefix("refs/")
+                || inside == "HEAD" || inside == "packed-refs" {
+                refsMoved = true
+            }
+        }
+
+        // A commit, a checkout or a reset: the base moved under the panes,
+        // which is the case that matters most - in uncommitted mode a commit
+        // empties the diff outright.
+        if refsMoved {
+            markStale(true)
+            return
+        }
+        guard !candidates.isEmpty else { return }
+        // A batch this large is a checkout, a branch switch or a build; asking
+        // git about each path would cost more than the answer is worth.
+        guard candidates.count <= 64 else {
+            markStale(true)
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard GitDiff.containsUnignored(candidates, in: directory) else { return }
+            DispatchQueue.main.async { self?.markStale(true) }
+        }
+    }
+
+    /// The hint itself: a dot on the button that answers it. Deliberately
+    /// quiet - the window is read while an agent works, so this has to be
+    /// noticeable on the next glance without pulling the eye off the diff.
+    private func markStale(_ stale: Bool) {
+        guard stale != isStale else { return }
+        isStale = stale
+        refreshButton.title = stale ? "Refresh •" : "Refresh"
+        refreshButton.toolTip = stale
+            ? "The repo has changed since this was loaded - ⌘R to re-read it"
+            : "Re-read the working tree (⌘R)"
+    }
+
     private func finishLoad(_ token: Int, repo: GitDiff.Repo?, baseline: GitDiff.Baseline?,
                             changes: [GitDiff.FileChange], candidates: [String],
                             uncommitted: Int) {
         guard token == loadToken, let directory else { return }
         repoRoot = repo?.root
+        if let root = repo?.root { watcher.watch(root: root) } else { watcher.stop() }
         fillBaseRefPopup(candidates, selecting: baseline?.name)
         guard let repo else {
             self.changes = []
