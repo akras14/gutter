@@ -53,7 +53,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         // The window owns session -> UI wiring: sidebar refresh, showing the
         // selected surface, and handing it first responder.
         sessions.onListChanged = { [weak self] in
-            self?.splitVC.sidebarReload()
+            guard let self else { return }
+            self.splitVC.sidebarReload()
+            self.updateDockBadge()
         }
         sessions.onSelectionChanged = { [weak self] session in
             guard let self else { return }
@@ -69,6 +71,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    /// The sidebar dot only reaches you while you are looking at Gutter, which
+    /// is the opposite of what the app is for: start several agents, go away,
+    /// come back when one wants you. The Dock badge is that same state -
+    /// `Session.needsAttention`, counted - somewhere you see without switching
+    /// apps. No bounce: with several agents a bounce per hand-off is constant
+    /// motion, and the badge is already there on the next glance.
+    ///
+    /// The tile belongs to NSApp, but this lives here because this is where
+    /// every session -> UI reaction lives; `SessionManager` is the model and
+    /// holds no AppKit policy.
+    private func updateDockBadge() {
+        let count = sessions.attentionCount
+        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    }
 
     func beginRenameSelectedTab() {
         splitVC.beginRenameSelectedTab()

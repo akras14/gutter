@@ -96,6 +96,12 @@ enum MainMenu {
                                     action: #selector(AppDelegate.previousTab(_:)), keyEquivalent: "\t")
         prev.keyEquivalentModifierMask = [.control, .shift]
         prev.target = target
+        // No key equivalent, deliberately: the Dock badge says something wants
+        // you and the sidebar says which, so this only has to exist somewhere
+        // clickable. See DESIGN.md, "The count leaves the window".
+        let attention = viewMenu.addItem(withTitle: "Next Session Needing Attention",
+                                         action: #selector(AppDelegate.nextAttentionTab(_:)), keyEquivalent: "")
+        attention.target = target
         viewItem.submenu = viewMenu
         main.addItem(viewItem)
 

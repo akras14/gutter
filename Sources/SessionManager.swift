@@ -357,6 +357,33 @@ final class SessionManager {
         select(sessions[index])
     }
 
+    /// How many sessions are waiting on the user. The sidebar dot says which
+    /// ones; this is the same signal counted, for the Dock badge that reads
+    /// from outside the app.
+    var attentionCount: Int {
+        sessions.filter(\.needsAttention).count
+    }
+
+    /// The next session waiting on the user, forward from the selected one and
+    /// wrapping. Never the selected one itself: `select` early-returns on the
+    /// session already selected, so it would neither move nor clear a dot -
+    /// and by the time this is reachable from the menu the app is active, which
+    /// has already marked the selected session's hand-off as seen.
+    var nextNeedingAttention: Session? {
+        guard !sessions.isEmpty else { return nil }
+        let start = selected.flatMap { current in sessions.firstIndex { $0 === current } } ?? -1
+        for offset in 1...sessions.count {
+            let candidate = sessions[(start + offset) % sessions.count]
+            if candidate !== selected, candidate.needsAttention { return candidate }
+        }
+        return nil
+    }
+
+    func selectNextNeedingAttention() {
+        guard let next = nextNeedingAttention else { return }
+        select(next)
+    }
+
     func cycle(_ direction: Int) {
         guard let current = selected,
               let idx = sessions.firstIndex(where: { $0 === current }),

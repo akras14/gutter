@@ -11,6 +11,12 @@ from ghostty's core and its own Swift wrapper. The app itself is ~700 lines of
 AppKit (window shell, sidebar, session manager). No Xcode project: everything
 builds with `swiftc` + scripts.
 
+A session that wants you - Claude Code handing the turn back, a bell, an
+OSC 9;4 pause - lights a dot on its sidebar row, and the Dock icon carries the
+count so it reads without switching to the app. **View > Next Session Needing
+Attention** jumps to the next one. `DESIGN.md` lists what does and doesn't
+light a dot.
+
 Config lives in `~/.config/gutter/config`, in ghostty's config syntax: theme,
 font size, working directory and keybinds are read from there. First launch
 creates it empty. Ghostty's own config files are never loaded - to inherit

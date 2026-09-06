@@ -177,6 +177,37 @@ reads as the working -> idle edge. Emitters are expected to re-assert the
 report while busy; a send-once emitter shows a 15s spinner and an early
 dot.
 
+### The count leaves the window
+
+The dot is only visible to someone looking at the sidebar, which is the one
+place you are not when the app is doing its job: the point of starting five
+agents is to go and do something else. So the same state - `needsAttention`,
+counted across sessions - is on the Dock icon as a badge, and View > Next
+Session Needing Attention walks the sessions carrying it.
+
+No new signal is involved. The badge counts exactly what lights the dots, so
+everything above about what does and doesn't light one applies unchanged; if a
+tool doesn't light a dot it doesn't raise the count either.
+
+Two things were considered and turned down:
+
+- **Bouncing the Dock icon** (`NSApp.requestUserAttention`). With several
+  agents running, a bounce per hand-off is near-constant motion, and the
+  informational variant's single bounce is missed as easily as the badge while
+  costing an interruption. A badge is read on the next glance at the Dock,
+  which is when the user is ready to look.
+- **A keybind for the jump.** VS Code has no counterpart to copy - its nearest
+  idea is `F8`, go to next problem - so it would have to be invented, and every
+  binding Gutter takes is a key the terminal no longer gets. The badge already
+  says *that* something wants you and the sidebar says *which*, so the menu
+  item only has to be clickable. It is also the first menu item here that
+  disables itself: `AppDelegate.validateMenuItem` greys it when nothing is
+  waiting, which makes the menu a second readout of the same count.
+
+The badge is set from `MainWindowController`, not `AppDelegate`, even though
+the tile belongs to `NSApp`: that controller owns every session -> UI reaction
+already, and `SessionManager` is the model and holds no AppKit policy.
+
 ## The diff view
 
 ### Side-by-side, meld-style

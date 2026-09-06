@@ -2,7 +2,7 @@ import AppKit
 import GhosttyKit
 import os
 
-final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NSMenuItemValidation {
     /// The libghostty app + config. Gutter has its own config file, in
     /// ghostty's syntax; ghostty's own default files are never loaded, so
     /// Ghostty.app's config stays Ghostty.app's. To inherit it, add a
@@ -279,6 +279,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate {
 
     @objc func previousTab(_ sender: Any?) {
         sessions.cycle(-1)
+    }
+
+    /// Walk the sessions that want the user - the same dots the sidebar shows
+    /// and the Dock badge counts. Selecting one clears its dot, so repeating
+    /// this empties the queue.
+    @objc func nextAttentionTab(_ sender: Any?) {
+        sessions.selectNextNeedingAttention()
+    }
+
+    /// Only one item is ever disabled: jumping to a session that wants you,
+    /// when none does. Everything else this delegate targets is always
+    /// available, and AppKit's default for an unvalidated item is enabled, so
+    /// the rest of the menu is unchanged by returning true.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(nextAttentionTab(_:)) else { return true }
+        return sessions.nextNeedingAttention != nil
     }
 
     // MARK: Find actions
