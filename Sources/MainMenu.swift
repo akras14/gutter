@@ -47,6 +47,17 @@ enum MainMenu {
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
+        // No target, deliberately: these ride the responder chain, so they
+        // reach the focused surface (the vendored SurfaceView implements
+        // copy:/paste: as ghostty binding actions) or the field editor in the
+        // find bar and the rename sheet. Without menu items nothing claims the
+        // keys at all - the core has no default super+c/super+v, upstream
+        // ghostty gets them from its own Edit menu - so ⌘V did nothing while the
+        // right-click menu's Paste, which calls the same action, worked.
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
         let findItem = NSMenuItem()
         findItem.title = "Find"
         let findMenu = NSMenu(title: "Find")

@@ -218,6 +218,7 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |
 | `cmd-b` or toolbar button | Toggle sidebar |
 | `ctrl-shift-g` | Show changes (side-by-side diff) |
+| `cmd-c` / `cmd-v` / `cmd-a` | Copy / paste / select all (Edit menu items on the responder chain - the ghostty core binds none of these) |
 | `cmd-f` / `cmd-g` / `cmd-shift-g` | Find in scrollback / next / previous |
 | `cmd-e` | Use selection for find |
 | `cmd-,` / `cmd-shift-,` | Open / reload the Gutter config (`~/.config/gutter/config`) |
