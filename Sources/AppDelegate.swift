@@ -197,17 +197,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     // is ghostty's file, not the one Gutter loads.
 
     /// Creates `configPath` (and its directory) when it doesn't exist yet, so
-    /// the Config menu always has a file to open. The file is deliberately
-    /// empty - nothing is written on someone else's machine but the file
-    /// itself. Returns false and alerts when creation fails.
+    /// the Config menu always has a file to open. Only ever creates it: an
+    /// existing file is someone's own and is never rewritten.
+    ///
+    /// The template carries one live setting, `notify-on-command-finish`. It
+    /// is a seed and not an override on purpose: written into the user's file,
+    /// it can be edited or deleted like anything else they put there, where
+    /// the same line in the embedder config `main.swift` writes would win over
+    /// their config and could never be turned off. The cost is that it only
+    /// reaches a machine that hasn't run Gutter before - see DESIGN.md.
+    ///
+    /// Returns false and alerts when creation fails.
     @discardableResult
     private static func ensureConfigFile(alerting: Bool) -> Bool {
         let url = URL(fileURLWithPath: configPath)
         if FileManager.default.fileExists(atPath: url.path) { return true }
+        let template = """
+        # Gutter config, in ghostty's config syntax: theme, font-size, keybinds.
+        # https://ghostty.org/docs/config
+        #
+        # Ghostty's own config files are never loaded. To inherit yours:
+        #
+        #   config-file = ?~/.config/ghostty/config
+        #
+        # Light a session's sidebar dot - and the Dock badge - when a command
+        # that ran for a while finishes in a tab you aren't looking at. Coding
+        # agents report themselves; this is what a plain shell has, for a build
+        # or a test run. Needs shell integration, which Gutter bundles.
+        # Delete the line to turn it off; notify-on-command-finish-after
+        # changes the 5s it has to have been running for.
+        notify-on-command-finish = unfocused
+
+        """
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try "".write(to: url, atomically: true, encoding: .utf8)
+            try template.write(to: url, atomically: true, encoding: .utf8)
             return true
         } catch {
             if alerting {
