@@ -25,6 +25,11 @@ final class ShortcutsWindowController: NSWindowController {
             ("⌘B", "Toggle sidebar"),
             ("⌃⇧G", "Show changes"),
         ]),
+        ("Edit", [
+            ("⌘C", "Copy"),
+            ("⌘V", "Paste"),
+            ("⌘A", "Select all"),
+        ]),
         ("Find", [
             ("⌘F", "Find in scrollback"),
             ("⌘G", "Find next"),
