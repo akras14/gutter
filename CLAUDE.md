@@ -4,6 +4,8 @@ A native macOS terminal app: one window, a sidebar of sessions, one live termina
 surface. It embeds libghostty v1.3.1 as a static library and reuses ghostty's own Swift
 wrapper. `README.md` has the architecture diagram and the full build notes;
 `DESIGN.md` has the design decisions and what was deliberately left out.
+`competitors/` holds research on adjacent tools: what they do, what was verified
+in their source, and which of Gutter's decisions it bears on.
 
 ## Build and run
 
