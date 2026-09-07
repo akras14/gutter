@@ -131,6 +131,34 @@ fire only on completion, ghostty 1.3.1's parser drops OSC 99 entirely (no
 parser state), and the vendored wrapper turns what remains into a macOS
 banner, not sidebar state.
 
+### The fourth signal is a config line, seeded not forced
+
+A plain shell reports none of the three above, so a build or a test run in a
+background tab lights nothing. ghostty already has the answer:
+`notify-on-command-finish = unfocused` makes a command that ran longer than
+five seconds post a bell when it finishes in an unfocused surface, and the
+vendored wrapper's `commandFinished` posts exactly the `.ghosttyBellDidRing`
+the dot already listens for. Nothing to build; the default is `never`, so the
+only problem was that nobody would know to turn it on.
+
+So Gutter writes it into the config file it creates on a machine that has none
+(`AppDelegate.ensureConfigFile`), commented, alongside the `config-file` line
+for inheriting a ghostty config.
+
+A seed, not an override. The embedder config `main.swift` writes loads *after*
+the user's file and wins over it - right for the keybinds it carries, wrong for
+a default, which has to be something the user can edit or delete. The cost is
+that a seed only reaches a machine that hasn't run Gutter before; an existing
+config keeps whatever it says, and Gutter never rewrites it.
+
+What it does not do is make noise. `bell-features` - the system alert sound,
+the dock bounce, the 🔔 title prefix - is handled in ghostty's own app target,
+which `vendor.sh` doesn't copy, and this path posts the notification directly
+anyway. The sidebar dot and the Dock badge are the whole effect. Turning the
+`notify` action on (`notify-on-command-finish-action = bell,notify`) adds a
+macOS banner, which is the wrapper's `showDesktopNotification` and does work
+here.
+
 ### opencode reports nothing on its own
 
 opencode shows no spinner and no dot, and it can't be made to with the

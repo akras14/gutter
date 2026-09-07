@@ -19,7 +19,11 @@ light a dot.
 
 Config lives in `~/.config/gutter/config`, in ghostty's config syntax: theme,
 font size, working directory and keybinds are read from there. First launch
-creates it empty. Ghostty's own config files are never loaded - to inherit
+writes a short commented template carrying one setting,
+`notify-on-command-finish = unfocused`, which is what lights the dot for a
+plain shell - a build or a test run finishing in a tab you aren't looking at.
+Edit or delete the line like any other; a config file that already exists is
+never rewritten. Ghostty's own config files are never loaded - to inherit
 them, add `config-file = ?~/.config/ghostty/config` (or the path to
 `com.mitchellh.ghostty/config.ghostty`; `?` means "skip if missing").
 
