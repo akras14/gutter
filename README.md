@@ -23,7 +23,8 @@ writes a short commented template carrying one setting,
 `notify-on-command-finish = unfocused`, which is what lights the dot for a
 plain shell - a build or a test run finishing in a tab you aren't looking at.
 Edit or delete the line like any other; a config file that already exists is
-never rewritten. Ghostty's own config files are never loaded - to inherit
+never rewritten. `CONFIG.md` is the short list of settings worth knowing about
+- ghostty's own reference has several hundred. Ghostty's own config files are never loaded - to inherit
 them, add `config-file = ?~/.config/ghostty/config` (or the path to
 `com.mitchellh.ghostty/config.ghostty`; `?` means "skip if missing").
 
@@ -102,6 +103,7 @@ dot, progress spinner) - the surface is the real terminal.
 | `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` (bundles themes + shell integration + terminfo) |
 | `Info.plist` | Bundle metadata (bundle id, min macOS 13) |
 | `DESIGN.md` | Why Gutter is shaped this way; declined and deferred features |
+| `CONFIG.md` | The settings worth setting, and the keys Gutter claims from the core |
 
 ## Requirements
 

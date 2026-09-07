@@ -214,7 +214,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         if FileManager.default.fileExists(atPath: url.path) { return true }
         let template = """
         # Gutter config, in ghostty's config syntax: theme, font-size, keybinds.
-        # https://ghostty.org/docs/config
+        #
+        # The settings worth knowing about, and the keys Gutter claims:
+        # https://github.com/akras14/gutter/blob/master/CONFIG.md
+        # Every ghostty option: https://ghostty.org/docs/config
         #
         # Ghostty's own config files are never loaded. To inherit yours:
         #
