@@ -46,6 +46,8 @@ no build-script change.
   `Sources/ShortcutsWindowController.swift` (the ⌘? panel, written by hand), and the
   Keybinds table in `README.md`. All three are hand-maintained - nothing generates them
   from the menu - so a shortcut added to only one of them silently goes undocumented.
+  A fourth place, but only for the core keybind overrides in `main.swift`: the table of
+  claimed keys in `CONFIG.md`.
 - **Keep the comments.** They record hard-won fixes: fullscreen bar behavior, the first
   keystroke after launch, the `command` config quirk. Move them with the code they
   explain; don't drop them as noise.
