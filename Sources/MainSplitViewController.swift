@@ -1,15 +1,17 @@
 import AppKit
-import Combine
 import GhosttyKit
+import SwiftUI
 
-/// Window shell: collapsible sidebar on the left, terminal surface on the right.
+/// Window shell: collapsible sidebar on the left, the selected session's panes
+/// on the right.
 final class MainSplitViewController: NSSplitViewController {
     let sessions: SessionManager
-    private let container = TerminalContainerViewController()
+    private let container: TerminalContainerViewController
     private var sidebarVC: SidebarViewController?
 
-    init(sessions: SessionManager) {
+    init(sessions: SessionManager, ghostty: Ghostty.App) {
         self.sessions = sessions
+        self.container = TerminalContainerViewController(sessions: sessions, ghostty: ghostty)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -49,122 +51,73 @@ final class MainSplitViewController: NSSplitViewController {
     func show(_ session: Session?) {
         container.show(session)
     }
+
+    /// A session's panes changed shape - split, closed, zoomed, resized.
+    func refresh(_ session: Session) {
+        container.refresh(session)
+    }
 }
 
-/// Hosts exactly the selected session's SurfaceView, pinned edge to edge,
-/// with the find bar floating over its top-right corner.
+/// Hosts the selected session's pane tree, and nothing else.
+///
+/// The tree is SwiftUI (`SessionTreeView`), which is what makes this small: the
+/// find bar, the pointer cursor, surface sizing, scrollbars and the resize
+/// overlay all come from the vendored ghostty views inside it rather than from
+/// code here. See `SessionTreeView` for the list.
 final class TerminalContainerViewController: NSViewController {
+    private let sessions: SessionManager
+    private let ghostty: Ghostty.App
     private(set) var current: Session?
-    private var findBar: FindBarView?
-    private var searchCancellable: AnyCancellable?
-    private var pointerCancellable: AnyCancellable?
+
+    init(sessions: SessionManager, ghostty: Ghostty.App) {
+        self.sessions = sessions
+        self.ghostty = ghostty
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not supported") }
+
+    private var host: NSHostingView<AnyView> {
+        // swiftlint:disable:next force_cast
+        view as! NSHostingView<AnyView>
+    }
 
     override func loadView() {
-        view = TerminalHostView()
-        view.wantsLayer = true
+        view = NSHostingView(rootView: AnyView(Color.clear))
     }
 
     func show(_ session: Session?) {
         guard session !== current else { return }
-        current?.view.removeFromSuperview()
-        removeFindBar()
-        searchCancellable = nil
-        pointerCancellable = nil
         current = session
-
-        guard let v = session?.view else { return }
-        v.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(v)
-        NSLayoutConstraint.activate([
-            v.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            v.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            v.topAnchor.constraint(equalTo: view.topAnchor),
-            v.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        // libghostty reports the pointer shape (I-beam over text, pointing hand
-        // over a link) as a published property on the surface; nothing applies
-        // it. Ghostty's own host is an NSScrollView and uses documentCursor -
-        // this container is the same idea one level up, a cursor rect over the
-        // whole terminal area.
-        pointerCancellable = v.$pointerStyle
-            .receive(on: RunLoop.main)
-            .sink { [weak self, weak v] style in
-                guard let self, let v, self.current?.view === v else { return }
-                (self.view as? TerminalHostView)?.cursor = style.cursor
-            }
-
-        // The surface, not this controller, decides when the find bar exists:
-        // both the Find menu and ghostty's own start_search keybind end up
-        // setting searchState, and end_search clears it. Subscribing also
-        // restores an open bar when the user switches back to this session,
-        // since the state hangs off the SurfaceView.
-        searchCancellable = v.$searchState
-            .receive(on: RunLoop.main)
-            .sink { [weak self, weak v] state in
-                guard let self, let v, self.current?.view === v else { return }
-                if let state {
-                    self.showFindBar(state, on: v)
-                } else {
-                    self.removeFindBar()
-                }
-            }
+        render()
     }
 
-    private func showFindBar(_ state: Ghostty.SurfaceView.SearchState, on surface: Ghostty.SurfaceView) {
-        if let bar = findBar, bar.state === state {
-            bar.focusField()
+    func refresh(_ session: Session) {
+        guard session === current else { return }
+        render()
+    }
+
+    private func render() {
+        guard let session = current else {
+            host.rootView = AnyView(Color.clear)
             return
         }
-        removeFindBar()
-
-        let bar = FindBarView(surfaceView: surface, state: state)
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(bar)
-        NSLayoutConstraint.activate([
-            bar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            bar.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
-        ])
-        findBar = bar
-        bar.focusField()
-    }
-
-    private func removeFindBar() {
-        guard let bar = findBar else { return }
-        findBar = nil
-        // Hand focus back before the view goes away, or the window is left with
-        // a dead field editor as first responder and keystrokes fall on the
-        // floor until the user clicks the terminal.
-        let hadFocus = bar.holdsFocus
-        bar.removeFromSuperview()
-        if hadFocus, let v = current?.view {
-            view.window?.makeFirstResponder(v)
-        }
+        host.rootView = AnyView(
+            SessionTreeView(tree: session.tree) { [weak self] node, ratio in
+                guard let self, let current = self.current else { return }
+                self.sessions.setRatio(current, node: node, to: ratio)
+            }
+            // SurfaceWrapper and InspectableSurface both read the app out of
+            // the environment; Gutter has exactly one.
+            .environmentObject(ghostty)
+        )
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        // Same contract as ghostty's SurfaceScrollView: the PTY/renderer needs
-        // to know the visible size. Skip zero sizes (pre-window layout).
-        if let v = current?.view, v.bounds.width > 0, v.bounds.height > 0 {
-            v.sizeDidChange(v.bounds.size)
-        }
-    }
-}
-
-/// The terminal's backdrop. It exists to own a cursor rect: the SurfaceView sets
-/// no cursor of its own, so without this the pointer stays an arrow everywhere.
-/// A superview's cursor rect still covers the area its subviews sit on - the same
-/// arrangement NSClipView uses for documentCursor.
-final class TerminalHostView: NSView {
-    var cursor: NSCursor = .iBeam {
-        didSet {
-            guard cursor != oldValue else { return }
-            window?.invalidateCursorRects(for: self)
-        }
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
+        // Keyboard split resize converts pixels to a ratio, so the tree needs
+        // to know the area it is laid out in. Nothing else here needs a size:
+        // each surface gets its own from the GeometryReader in SurfaceWrapper.
+        sessions.terminalBounds = view.bounds
     }
 }

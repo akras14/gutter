@@ -144,13 +144,19 @@ ships no renderer; Gutter ships no daemon. `herdr attach` typed into a Gutter
 tab works today and needs no code here - Gutter stays self-contained precisely
 because it never learns that herdr exists.
 
-### Two things they ship are already declined here
+### One thing they ship is still declined here; the other since shipped
 
-Session restore (`DESIGN.md`, "Not a product") and splits ("Splits: declined,
-not deferred"). A competitor shipping them is not an argument to reverse
-either; that was settled under "Not competing with iTerm", where wanting to own
-the experience is the stated motivation and "tool X already does this" is
-explicitly not on its own an argument.
+Session restore is still declined (`DESIGN.md`, "Not a product"). A competitor
+shipping it is not an argument to reverse it; that was settled under "Not
+competing with iTerm", where wanting to own the experience is the stated
+motivation and "tool X already does this" is explicitly not on its own an
+argument.
+
+Splits were the other one, and they have since been built - see "Splits:
+declined, then reversed". Note what did *and did not* move that decision:
+herdr shipping splits was never the argument. What changed it was discovering
+the cost estimate was wrong, because ghostty's own split tree and split views
+were already vendored and compiling. The rule above survives intact.
 
 ### On status detection, Claude Code is a tie
 

@@ -15,7 +15,8 @@ final class ShortcutsWindowController: NSWindowController {
         ("Tabs", [
             ("⌘T", "New tab"),
             ("⇧⌘T", "New request (runs a tool in a new tab)"),
-            ("⌘W", "Close tab (or the front window)"),
+            ("⌘W", "Close pane (or the front window)"),
+            ("⌥⌘W", "Close session"),
             ("⇧⌘R", "Rename tab"),
             ("⌘1 – ⌘9", "Select tab 1 to 9"),
             ("⌃Tab", "Next tab"),
@@ -24,6 +25,15 @@ final class ShortcutsWindowController: NSWindowController {
         ("View", [
             ("⌘B", "Toggle sidebar"),
             ("⌃⇧G", "Show changes"),
+        ]),
+        ("Panes", [
+            ("⌘D", "Split right"),
+            ("⇧⌘D", "Split down"),
+            ("⌘] / ⌘[", "Next / previous pane"),
+            ("⌥⌘ ← → ↑ ↓", "Focus the pane in that direction"),
+            ("⌃⌘ ← → ↑ ↓", "Resize the pane"),
+            ("⇧⌘↵", "Zoom the pane (and back)"),
+            ("⌃⌘=", "Equalize panes"),
         ]),
         ("Edit", [
             ("⌘C", "Copy"),
@@ -36,9 +46,11 @@ final class ShortcutsWindowController: NSWindowController {
             ("⇧⌘G", "Find previous"),
             ("⌘E", "Use selection for find"),
         ]),
+        // Same keys as Next/Previous Pane, and no conflict: these are that
+        // window's own button key equivalents, live only while it is key.
         ("Changes Window", [
-            ("⌘]", "Next change"),
-            ("⌘[", "Previous change"),
+            ("⌘]", "Next change (in that window)"),
+            ("⌘[", "Previous change (in that window)"),
             ("⌘R", "Refresh"),
             ("⌘W", "Close window"),
         ]),

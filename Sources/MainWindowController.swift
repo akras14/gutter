@@ -4,7 +4,14 @@ import GhosttyKit
 /// Owns the main window: frame sizing, the split shell, the toolbar, and
 /// fullscreen chrome. Every piece of "window" logic lives here; AppDelegate
 /// only creates this and forwards actions to it.
-final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
+///
+/// It subclasses `BaseTerminalController` (Gutter's shim, `Shims.swift`) because
+/// ghostty's core refuses to perform `goto_split`, `resize_split` and
+/// `toggle_split_zoom` unless the key window's controller is one, and reads the
+/// pane tree and focused surface off it to decide whether the keybind is even
+/// performable (`Ghostty.App.swift:1168,1274,1328`). Keeping `surfaceTree` and
+/// `focusedSurface` current - `syncSplitState` - is the whole of that contract.
+final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSToolbarDelegate {
     /// Default content size, clamped to the visible screen at launch.
     static let defaultContentSize = NSSize(width: 1750, height: 1120)
     static let sidebarWidth: CGFloat = 330
@@ -13,8 +20,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private let sessions: SessionManager
     private var diffWindow: GitDiffWindowController?
 
-    init(sessions: SessionManager) {
-        let split = MainSplitViewController(sessions: sessions)
+    init(sessions: SessionManager, ghostty: Ghostty.App) {
+        let split = MainSplitViewController(sessions: sessions, ghostty: ghostty)
         self.splitVC = split
         self.sessions = sessions
 
@@ -56,11 +63,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
             guard let self else { return }
             self.splitVC.sidebarReload()
             self.updateDockBadge()
+            self.syncSplitState()
         }
         sessions.onSelectionChanged = { [weak self] session in
             guard let self else { return }
             self.splitVC.show(session)
-            self.window?.makeFirstResponder(session?.view)
+            // moveFocus, not makeFirstResponder: the surface is inside a
+            // SwiftUI tree now and may not be attached to the window yet on
+            // the first pass. Ghostty's helper retries with a backoff, which
+            // is exactly the case it exists for.
+            if let session { Ghostty.moveFocus(to: session.view) }
+        }
+        sessions.onTreeChanged = { [weak self] session in
+            guard let self else { return }
+            self.splitVC.refresh(session)
+            self.syncSplitState()
         }
         // Last tab gone: close the window. applicationShouldTerminateAfter-
         // LastWindowClosed then quits the app. close(), not performClose():
@@ -71,6 +88,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    /// What the core reads to decide whether a split keybind can fire, and
+    /// which pane it fires from. See the note on the class.
+    private func syncSplitState() {
+        surfaceTree = sessions.selected?.tree ?? SplitTree<Ghostty.SurfaceView>()
+        focusedSurface = sessions.selected?.view
+    }
+
+    /// Both are `BaseTerminalController` entry points that only became live
+    /// when this became one: the core's `prompt_surface_title` action for a tab
+    /// (`Ghostty.App.swift:1681,1690`), and the right-click menu's "Change Tab
+    /// Title...". Gutter's tab title is the sidebar row's name, so both land on
+    /// the rename that cmd-shift-R starts.
+    override func promptTabTitle() {
+        beginRenameSelectedTab()
+    }
+
+    override func changeTabTitle(_ sender: Any) {
+        beginRenameSelectedTab()
+    }
 
     /// The sidebar dot only reaches you while you are looking at Gutter, which
     /// is the opposite of what the app is for: start several agents, go away,
@@ -165,7 +202,7 @@ extension MainWindowController {
         // focused. If nothing owns focus, hand it to the terminal surface.
         guard window?.firstResponder is NSWindow,
               let session = sessions.selected else { return }
-        window?.makeFirstResponder(session.view)
+        Ghostty.moveFocus(to: session.view)
     }
 
     // AppKit keeps a window's toolbar on screen in fullscreen unless the app

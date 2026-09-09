@@ -40,8 +40,12 @@ enum MainMenu {
                                        action: #selector(AppDelegate.newRequest(_:)), keyEquivalent: "T")
         request.keyEquivalentModifierMask = [.command, .shift]
         request.target = target
-        fileMenu.addItem(withTitle: "Close Tab",
-                         action: #selector(AppDelegate.closeTab(_:)), keyEquivalent: "w").target = target
+        fileMenu.addItem(withTitle: "Close Pane",
+                         action: #selector(AppDelegate.closePane(_:)), keyEquivalent: "w").target = target
+        let closeSession = fileMenu.addItem(withTitle: "Close Session",
+                                            action: #selector(AppDelegate.closeSession(_:)), keyEquivalent: "w")
+        closeSession.keyEquivalentModifierMask = [.command, .option]
+        closeSession.target = target
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
@@ -91,6 +95,32 @@ enum MainMenu {
                                     action: #selector(AppDelegate.showGitDiff(_:)), keyEquivalent: "g")
         diff.keyEquivalentModifierMask = [.control, .shift]
         diff.target = target
+        viewMenu.addItem(.separator())
+        // The keys here are ghostty's own defaults, which the core claims
+        // before the menu bar sees them - these items carry the same
+        // equivalents so the keys are discoverable, and so they still work
+        // when no surface has focus (the sidebar, say).
+        let splitRight = viewMenu.addItem(withTitle: "Split Right",
+                                          action: #selector(AppDelegate.splitPaneRight(_:)), keyEquivalent: "d")
+        splitRight.target = target
+        let splitDown = viewMenu.addItem(withTitle: "Split Down",
+                                         action: #selector(AppDelegate.splitPaneDown(_:)), keyEquivalent: "D")
+        splitDown.keyEquivalentModifierMask = [.command, .shift]
+        splitDown.target = target
+        let nextPane = viewMenu.addItem(withTitle: "Next Pane",
+                                        action: #selector(AppDelegate.nextPane(_:)), keyEquivalent: "]")
+        nextPane.target = target
+        let prevPane = viewMenu.addItem(withTitle: "Previous Pane",
+                                        action: #selector(AppDelegate.previousPane(_:)), keyEquivalent: "[")
+        prevPane.target = target
+        let zoomPane = viewMenu.addItem(withTitle: "Zoom Pane",
+                                        action: #selector(AppDelegate.zoomPane(_:)), keyEquivalent: "\r")
+        zoomPane.keyEquivalentModifierMask = [.command, .shift]
+        zoomPane.target = target
+        let equalize = viewMenu.addItem(withTitle: "Equalize Panes",
+                                        action: #selector(AppDelegate.equalizePanes(_:)), keyEquivalent: "=")
+        equalize.keyEquivalentModifierMask = [.control, .command]
+        equalize.target = target
         viewMenu.addItem(.separator())
         for i in 1...9 {
             let item = viewMenu.addItem(withTitle: "Select Tab \(i)",

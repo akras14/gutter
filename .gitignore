@@ -8,3 +8,6 @@
 .DS_Store
 *.o
 __.SYMDEF
+
+# editor swap files
+*.swp
