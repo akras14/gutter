@@ -5,10 +5,10 @@ A small native macOS terminal app with a vertical tab sidebar, embedding
 
 ![Gutter: sidebar of sessions on the left, live terminal surface on the right](assets/screenshot.jpg)
 
-One window, one collapsible sidebar. Every session is a real libghostty surface -
+One window, one collapsible sidebar. Every pane is a real libghostty surface -
 Metal rendering, PTY handling, VT emulation, input/IME and config loading all come
-from ghostty's core and its own Swift wrapper. The app itself is ~700 lines of
-AppKit (window shell, sidebar, session manager). No Xcode project: everything
+from ghostty's core and its own Swift wrapper. The app itself is the window shell,
+sidebar and session manager in AppKit, over a pane tree that is ghostty's own SwiftUI. No Xcode project: everything
 builds with `swiftc` + scripts.
 
 A session that wants you - Claude Code handing the turn back, a bell, an
@@ -59,7 +59,8 @@ preference for native platform UI, and the maintainer points people at forks
 instead.
 
 It also began as a question: can a separate app embed libghostty and drive it?
-Yes, in ~700 lines of AppKit. Gutter is that experiment.
+Yes, in a few thousand lines of AppKit over ghostty's wrapper. Gutter is that
+experiment.
 
 It is not a fork and not a full terminal: one window, a sidebar of sessions,
 one live surface. For a full-featured terminal, use Ghostty or iTerm2.
@@ -80,21 +81,29 @@ main.swift            process setup: GHOSTTY_RESOURCES_DIR, ghostty_init, keybin
    └─ MainWindowController          window, toolbar, fullscreen chrome
       └─ MainSplitViewController
          ├─ SidebarViewController            one table row per session
-         └─ TerminalContainerViewController  hosts the selected SurfaceView
+         └─ TerminalContainerViewController  hosts the selected session's panes
+            └─ SessionTreeView (SwiftUI)     ghostty's SplitView + InspectableSurface
 ```
 
 `SessionManager` is the model: it owns sessions and holds no AppKit policy.
 `MainWindowController` owns every session-to-UI reaction - sidebar reload, showing the
 selected surface, handing it first responder. `GhosttyBridge` translates libghostty
 notifications into session calls; it is the file to audit for API drift when ghostty is
-updated. A `Session` is a live `Ghostty.SurfaceView` plus sidebar state (title, activity
-dot, progress spinner) - the surface is the real terminal.
+updated. A `Session` is a tree of `Pane`s - each a live `Ghostty.SurfaceView` plus its
+own state (title, activity dot, progress spinner) - and the row shows a fold of them:
+the focused pane's title, but attention OR-ed across all of them, so an agent handing
+back in a pane you aren't looking at still lights the dot.
+
+The terminal area itself is ghostty's own SwiftUI, not Gutter's: `SessionTreeView` is a
+near-copy of upstream's `TerminalSplitTreeView`, and everything inside a pane - find bar,
+dimming, resize overlay, pointer cursor, sizing - comes from the vendored views. See
+DESIGN.md, "The terminal area is ghostty's, not ours".
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `Sources/` | App code: `AppDelegate` (lifecycle + menu actions), `MainWindowController` (window, toolbar, fullscreen), `GhosttyBridge` (libghostty boundary), `SessionManager` (sessions, tabs), `SidebarViewController`, `MainSplitViewController.swift` (split view + surface container) |
+| `Sources/` | App code: `AppDelegate` (lifecycle + menu actions), `MainWindowController` (window, toolbar, fullscreen; also the `BaseTerminalController` the core needs for split keybinds), `GhosttyBridge` (libghostty boundary), `SessionManager` (sessions, panes, status folds), `SidebarViewController`, `MainSplitViewController` (sidebar + pane container), `SessionTreeView` (the pane tree, in ghostty's SwiftUI) |
 | `Sources/Shims.swift` | Stub types the vendored wrapper `as?`-casts to (no-op in this app) |
 | `Sources/Compat.swift` | Shims for Swift-overlay APIs missing from the CommandLineTools toolchain |
 | `Vendor/` | Swift wrapper copied from the ghostty checkout by `vendor.sh` (SurfaceView with input/IME, config, app runtime) |
@@ -209,13 +218,26 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 `ShortcutsWindowController.swift`. Adding a keybind means editing three places:
 `MainMenu.swift`, that list, and this table.
 
+The pane keys are ghostty's own defaults, claimed by the core rather than bound
+here. Most carry a matching menu item so they are discoverable and still work
+when no surface has focus; the two arrow sets (focus and resize) are core-only -
+eight menu items for them would swamp the View menu - so they appear in the ⌘?
+panel and this table but not in the menu bar.
+
 | Keys | Action |
 |---|---|
-| `cmd-t` / `cmd-w` | New tab / close tab (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory` |
+| `cmd-t` / `cmd-w` | New tab / close pane (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory`. Closing a session's last pane closes the session |
+| `alt-cmd-w` | Close the whole session, however many panes it has (ghostty's `close_tab`) |
 | `cmd-shift-t` | New request: pick a folder and a tool, type a prompt, run it in a new background tab |
 | `cmd-shift-r` | Rename tab |
 | `cmd-1..9` | Select tab N |
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |
+| `cmd-d` / `cmd-shift-d` | Split the session's terminal area right / down |
+| `cmd-]` / `cmd-[` | Next / previous pane |
+| `alt-cmd-arrows` | Focus the pane in that direction |
+| `ctrl-cmd-arrows` | Resize the pane |
+| `cmd-shift-enter` | Zoom the pane, and back |
+| `ctrl-cmd-=` | Equalize panes |
 | `cmd-b` or toolbar button | Toggle sidebar |
 | `ctrl-shift-g` | Show changes (side-by-side diff) |
 | `cmd-c` / `cmd-v` / `cmd-a` | Copy / paste / select all (Edit menu items on the responder chain - the ghostty core binds none of these) |
@@ -225,7 +247,10 @@ Shortcuts, `cmd-shift-/`), which is built by hand in
 | `cmd-shift-/` | Keyboard shortcuts |
 
 In the changes window: `cmd-]` / `cmd-[` next and previous change, `cmd-r`
-refresh, `cmd-w` close. The Refresh button takes a dot when the repo changes
+refresh, `cmd-w` close. Those first two are the same keys that move between
+panes in the main window; they don't collide, because in the changes window
+they are that window's own button key equivalents, not menu items or core
+keybinds. The Refresh button takes a dot when the repo changes
 underneath it - a file written, a commit made - and `cmd-r` clears it. The
 window never reloads itself: that would lose your place in the file you are
 reading. A toggle in its header picks what the left pane is

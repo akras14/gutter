@@ -41,34 +41,70 @@ still pass, so this is the only reminder.
 
 ### Not a product
 
-No splits, no session restore, no test suite. For a full-featured terminal, use
-Ghostty or iTerm2. Gutter is one window, a sidebar of sessions, and one live
-terminal surface, plus the few things that serve running several coding agents
-side by side.
+No session restore, no test suite. For a full-featured terminal, use Ghostty or
+iTerm2. Gutter is one window, a sidebar of sessions, and one live pane tree,
+plus the few things that serve running several coding agents side by side.
 
-### Splits: declined, not deferred
+### Splits: declined, then reversed
 
-Discussed and explicitly turned down. A sidebar of full-height sessions covers
-the same need, and splits would be the largest change in the app: the single
-surface in `MainSplitViewController` becomes a tree, taking `SessionManager`,
-the sidebar rows, and focus handling with it.
+This section used to read "declined, not deferred - don't re-propose this". The
+reasoning was that a sidebar of full-height sessions covers the same need, and
+that splits would be the largest change in the app.
 
-Don't re-propose this.
+The second half was wrong, and wrong for a checkable reason: `vendor.sh` already
+copies everything ghostty's own split renderer is built from. `SplitTree` (the
+tree, spatial focus, zoom, equalize, ratio resize), `SplitView` and its divider,
+and `Ghostty.InspectableSurface` are all in `Vendor/` and were already compiling
+into the app. What was missing was ~40 lines composing them, which is
+`SessionTreeView.swift` - a near-copy of upstream's `TerminalSplitTreeView`,
+minus the drag-and-drop zones.
 
-### The right-click menu is trimmed, not rebuilt
+The feature still grew `SessionManager` - per-pane state, the folds, seven tree
+operations. What it did not grow is the terminal area, which came out 263 lines
+smaller: see "The terminal area is ghostty's, not ours" below.
+
+What holds from the original decision: a split lives **inside** a sidebar row.
+One row is one session is a tree of panes. Panes are not sidebar rows, there is
+no drag-a-pane-onto-a-pane, and split layout is not persisted across launches.
+
+### The terminal area is ghostty's, not ours
+
+Gutter used to host a bare `Ghostty.SurfaceView` in an AppKit container and
+hand-write the things ghostty's own SwiftUI host already does. That inverted
+when panes arrived: the pane tree is `Ghostty.InspectableSurface` inside
+`SplitView`, both vendored, and each surface therefore arrives with its find bar
+(`SurfaceSearchOverlay`), unfocused-pane dimming, resize overlay, progress bar,
+bell border, pointer cursor and its own size, none of it Gutter's code.
+
+That deleted `FindBarView.swift` outright, along with the container's find-bar
+plumbing, its cursor rect and its `sizeDidChange` call. The rule this leaves
+behind: **before writing terminal-area UI, look for it in `Vendor/` first.**
+Anything ghostty draws inside a surface is almost certainly already there.
+
+The cost, accepted knowingly: the terminal area is SwiftUI now, so the reversal
+also applies to any "Gutter is AppKit end to end" reading of this document. The
+window shell, sidebar and session model are still AppKit; the pane tree is not.
+
+### The right-click menu is no longer trimmed
 
 That menu comes from the vendored `SurfaceView.menu(for:)` and is ghostty's,
-written for ghostty's window shell. Four of its items - the splits and the
-terminal inspector - post notifications `GhosttyBridge` doesn't observe, so they
-looked live and did nothing. `GutterSurfaceView` subclasses the surface and
-filters them out of the menu `super` returns, and repoints "Change Tab Title..."
-(ghostty's terminal controller, only a stub in `Shims.swift`) at the sidebar
-rename. Subclassing rather than editing `Vendor/` keeps the fix on the right
-side of the vendoring line - see "Not a fork" above.
+written for ghostty's window shell. Five of its items - the four splits and the
+terminal inspector - posted notifications nothing observed, so they looked live
+and did nothing. A `GutterSurfaceView` subclass filtered them out.
 
-Anything else the wrapper adds to that menu later arrives enabled by default.
-When a ghostty update lands, right-click once and check the new items do
-something here.
+All five work now, and that subclass is gone:
+
+- the splits, because `GhosttyBridge` observes `ghosttyNewSplit`;
+- the inspector, because panes render through `Ghostty.InspectableSurface`,
+  which handles `didControlInspector` itself and shows the vendored inspector -
+  no Gutter code at all;
+- "Change Tab Title...", which used to be hand-repointed at the sidebar rename,
+  because `MainWindowController` is a real `BaseTerminalController` now and
+  answers `changeTabTitle` itself.
+
+The menu is entirely ghostty's again. Anything the wrapper adds to it later
+arrives enabled by default, so when a ghostty update lands, right-click once and
+check the new items do something here.
 
 ### Not competing with iTerm
 
@@ -108,7 +144,17 @@ uses git alone - see the diff base picker below for how that played out.
 
 Each row's leading slot shows one of three things: a spinner while the
 session is working, an orange dot when it wants the user, the row's close
-button on hover. The signals behind it, and why those and no others:
+button on hover.
+
+A row is a session and a session is a tree of panes, so every signal below is
+read per pane and folded into the row. The folds are not all the same, and the
+difference is the point: the row's **title** is the focused pane's, so it
+doesn't flicker between panes, while **attention and working are OR-ed across
+all of them**. Without the OR, an agent handing back in a pane you are not
+looking at would never light the dot - which is the whole feature. "Seen" is
+per pane too, so a pane hidden behind a zoom does not count as read.
+
+The signals behind it, and why those and no others:
 
 - **Claude Code's title.** It writes a braille spinner into the terminal
   title while working and prefixes the title with "✳" when it hands the
@@ -215,7 +261,12 @@ Session Needing Attention walks the sessions carrying it.
 
 No new signal is involved. The badge counts exactly what lights the dots, so
 everything above about what does and doesn't light one applies unchanged; if a
-tool doesn't light a dot it doesn't raise the count either.
+tool doesn't light a dot it doesn't raise the count either. The badge counts
+rows, not panes: two panes wanting you in one session is still one.
+
+Walking to a session also lands you on the *pane* that raised it, un-zooming if
+a zoom was hiding it. With panes the dot no longer says where in the row to
+look, so leaving focus where it was would hand you a row and a hunt.
 
 Two things were considered and turned down:
 
@@ -448,12 +499,13 @@ the same trap as `super+,`. `main.swift` unbinds it.
 ## Only what you are looking at renders
 
 libghostty draws every surface it holds, at full render-thread QoS, until told
-otherwise. Gutter keeps one live surface per session forever and swaps which
-one is in the view hierarchy, so without a signal every background session
-paints frames into a detached layer for as long as its agent is busy, and each
-one's window-sized Metal drawables stay resident because they keep being
-presented. Measured on 11 sessions: 45 IOSurfaces at 21.4MB each, 964MB of a
-1.3GB footprint.
+otherwise. Gutter keeps every pane's surface alive forever and swaps which
+session's tree is in the view hierarchy, so without a signal every background
+session paints frames into a detached layer for as long as its agent is busy,
+and each one's window-sized Metal drawables stay resident because they keep
+being presented. Measured on 11 sessions: 45 IOSurfaces at 21.4MB each, 964MB
+of a 1.3GB footprint. Panes multiply that, which is why this is per pane and
+not per session.
 
 The signal is `ghostty_surface_set_occlusion`. ghostty's own shell makes the
 call from `BaseTerminalController.windowDidChangeOcclusionState` - an app-target
@@ -461,11 +513,17 @@ file `vendor.sh` doesn't copy, since it only copies the wrapper - so Gutter
 inherited the C API and none of its callers, and every surface stayed at the
 core's default of visible.
 
-`SessionManager.syncOcclusion` is that call, over both halves of "is anyone
-looking at this": the session is selected, and the window is on screen
-(`MainWindowController.windowDidChangeOcclusionState`). Ghostty only has the
-second half, because its tabs are separate windows; Gutter's are not, so the
-selection half is ours.
+`SessionManager.syncOcclusion` is that call, over all three parts of "is anyone
+looking at this pane": its session is selected, the window is on screen
+(`MainWindowController.windowDidChangeOcclusionState`), and no zoom is hiding
+it. Ghostty only has the window half, because its tabs are separate windows;
+Gutter's are not, so selection and zoom are ours.
+
+The zoom part is easy to lose: `SplitTree.inserting` and `resizing` both return
+a tree with the zoom cleared (`SplitTree.swift:129,332`), so a resize while
+zoomed makes hidden panes visible again. Every structural change therefore goes
+through `SessionManager.treeChanged`, which resyncs occlusion - never assign
+`session.tree` and skip it.
 
 This is a rendering signal and nothing more. `renderer/Thread.zig` drops the
 thread to `.utility` and skips the draw; the pty keeps running, the terminal

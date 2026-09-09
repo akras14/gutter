@@ -2,16 +2,19 @@ import AppKit
 import Combine
 import GhosttyKit
 
-/// One terminal session: a live SurfaceView plus sidebar display state.
-final class Session {
-    let id: UUID
+/// One pane inside a session: a live surface plus the state that hangs off it.
+///
+/// All of this used to sit on `Session`, back when a session was exactly one
+/// surface. It moved down here when sessions grew a tree of panes: every signal
+/// libghostty reports is per-surface, and `Session` folds them into the single
+/// answer a sidebar row needs.
+final class Pane {
     let view: Ghostty.SurfaceView
+
     /// What the shell reports. Keeps updating even while a custom title is set,
     /// so clearing the custom one falls back to something current.
     var title: String = ""
-    /// Set by the user via rename; wins over the shell's title until cleared.
-    var customTitle: String?
-    var hasActivity: Bool = false
+
     /// Working directory, from libghostty's pwd action. nil until shell
     /// integration reports one, so some shells never fill it in.
     var pwd: String?
@@ -20,7 +23,8 @@ final class Session {
     /// Branch at `pwd`. nil outside a repo or on a detached HEAD.
     var branch: String?
 
-    var displayTitle: String { customTitle ?? title }
+    /// A bell rang here while the pane wasn't being looked at.
+    var hasActivity: Bool = false
 
     /// True while the surface carries an OSC 9;4 progress report - the ConEmu
     /// sequence Windows Terminal, iTerm2 and ghostty all read as "working".
@@ -28,31 +32,107 @@ final class Session {
     var isWorking: Bool = false
 
     /// Set on the working -> idle edge of a progress report. Serves the same
-    /// purpose as Claude Code's "✳" title below: the session just handed
-    /// itself back to the user.
-    fileprivate var workFinished = false
+    /// purpose as Claude Code's "✳" title below: the pane just handed itself
+    /// back to the user.
+    var workFinished = false
 
     /// Claude Code prefixes the terminal title with a status glyph: "✳" when it
     /// hands the session back - finished, or asking something - and a spinner
     /// while it is still working. The two cases the glyph covers aren't
     /// distinguishable from the title, but both mean the same thing to the
-    /// sidebar: this session is waiting on the user. Anything else, a plain
-    /// shell included, never lights the dot. `workFinished` means the same
-    /// thing for tools that speak OSC 9;4.
+    /// sidebar: this pane is waiting on the user. Anything else, a plain shell
+    /// included, never lights the dot. `workFinished` means the same thing for
+    /// tools that speak OSC 9;4.
     var isReady: Bool {
         title.trimmingCharacters(in: .whitespaces).hasPrefix("✳") || workFinished
     }
 
-    /// True once the user has looked at this session while it was ready. The
-    /// glyph stays in the title for as long as Claude Code is waiting, so
-    /// without this the dot would come back the moment the user switched away
-    /// from a tab they had just read. Re-arms when the session goes back to
-    /// work: the next hand-off is news again.
-    fileprivate var readySeen = false
+    /// True once the user has looked at this pane while it was ready. The glyph
+    /// stays in the title for as long as Claude Code is waiting, so without this
+    /// the dot would come back the moment the user switched away from a pane
+    /// they had just read. Re-arms when the pane goes back to work: the next
+    /// hand-off is news again.
+    ///
+    /// Per pane, not per session: a pane hidden behind a zoom hasn't been seen
+    /// even though its session is selected.
+    var readySeen = false
 
-    /// What the sidebar dot shows: something happened here that the user has
-    /// not seen yet.
+    /// Something happened in this pane that the user has not seen yet.
     var needsAttention: Bool { hasActivity || (isReady && !readySeen) }
+
+    /// Pending debounced branch check. See `SessionManager.scheduleBranchCheck`.
+    var branchCheck: DispatchWorkItem?
+
+    /// Last occlusion state handed to libghostty. See
+    /// `SessionManager.syncOcclusion`. nil until the first sync, so the first
+    /// one always sends.
+    var rendererVisible: Bool?
+
+    init(view: Ghostty.SurfaceView) {
+        self.view = view
+    }
+}
+
+/// One terminal session: a tree of panes plus sidebar display state. One
+/// session is one sidebar row, however many panes it holds.
+final class Session {
+    /// The panes, as a tree. `SplitTree` is immutable-with-copies, so every
+    /// structural change is an assignment - `session.tree = session.tree.inserting(...)`.
+    var tree: SplitTree<Ghostty.SurfaceView>
+
+    /// One Pane per leaf of `tree`, in no particular order.
+    private(set) var panes: [Pane]
+
+    /// The pane that has, or last had, focus. Drives the row's title and
+    /// location, and is where session-wide actions (find, git diff) land.
+    var focusedPane: Pane
+
+    /// The focused surface. Named `view` because that is what a session was
+    /// before panes: every existing call site that says `session.view` wants
+    /// the pane the user is looking at.
+    var view: Ghostty.SurfaceView { focusedPane.view }
+
+    /// Set by the user via rename; wins over the shell's title until cleared.
+    var customTitle: String?
+
+    init(pane: Pane) {
+        self.tree = SplitTree(view: pane.view)
+        self.panes = [pane]
+        self.focusedPane = pane
+    }
+
+    func pane(for view: Ghostty.SurfaceView) -> Pane? {
+        panes.first { $0.view === view }
+    }
+
+    func add(_ pane: Pane) {
+        panes.append(pane)
+    }
+
+    func drop(_ pane: Pane) {
+        panes.removeAll { $0 === pane }
+    }
+
+    // MARK: The folds
+    //
+    // Each signal below is per-pane. A sidebar row shows one value, so each one
+    // folds a different way, and the difference matters: taking the focused
+    // pane's title keeps the row from flickering between panes, while OR-ing
+    // attention is what makes an agent handing back in a background pane light
+    // the dot at all.
+
+    /// The focused pane's, so the row doesn't flicker between panes.
+    var title: String { focusedPane.title }
+    var pwd: String? { focusedPane.pwd }
+    var folder: String? { focusedPane.folder }
+    var branch: String? { focusedPane.branch }
+
+    /// OR over panes: any pane working spins the row.
+    var isWorking: Bool { panes.contains(where: \.isWorking) }
+
+    /// OR over panes. Without this an agent handing back in a pane you are not
+    /// looking at would never light the dot.
+    var needsAttention: Bool { panes.contains(where: \.needsAttention) }
 
     /// Folder plus branch: the stable identity of a session, as opposed to the
     /// title, which Claude Code and the shell both rewrite constantly.
@@ -81,22 +161,10 @@ final class Session {
     var secondaryLine: String {
         location == primaryLine ? "" : location
     }
-
-    /// Pending debounced branch check. See `SessionManager.scheduleBranchCheck`.
-    fileprivate var branchCheck: DispatchWorkItem?
-
-    /// Last occlusion state handed to libghostty. See
-    /// `SessionManager.syncOcclusion`. nil until the first sync, so the first
-    /// one always sends.
-    fileprivate var rendererVisible: Bool?
-
-    fileprivate init(view: Ghostty.SurfaceView) {
-        self.id = view.id
-        self.view = view
-    }
 }
 
-/// Owns the list of terminal sessions and which one is selected.
+/// Owns the list of terminal sessions, which one is selected, and the pane tree
+/// inside each.
 final class SessionManager {
     private let ghostty: Ghostty.App
 
@@ -113,7 +181,7 @@ final class SessionManager {
             queue: .main
         ) { [weak self] _ in
             guard let self, let selected = self.selected else { return }
-            self.updateReadySeen(selected)
+            self.markVisiblePanesSeen(selected)
             self.onListChanged?()
         }
     }
@@ -131,19 +199,32 @@ final class SessionManager {
     /// `selected` is the other half. See `syncOcclusion`.
     private var windowVisible = true
 
+    /// The size of the terminal area, reported by the container on layout.
+    /// Only `resize` needs it: converting the core's "grow by N pixels" into a
+    /// split ratio needs to know what the tree is being laid out in.
+    var terminalBounds: CGRect = .zero
+
     var onListChanged: (() -> Void)?
     var onSelectionChanged: ((Session?) -> Void)?
+    /// A session's pane tree changed shape. The container re-renders it.
+    var onTreeChanged: ((Session) -> Void)?
     var onEmpty: (() -> Void)?
 
+    /// Keyed by surface, not session: every pane has its own subscriptions.
     private var cancellables: [UUID: AnyCancellable] = [:]
 
     func surface(for uuid: UUID) -> Ghostty.SurfaceView? {
-        sessions.first { $0.view.id == uuid }?.view
+        for session in sessions {
+            if let pane = session.panes.first(where: { $0.view.id == uuid }) { return pane.view }
+        }
+        return nil
     }
 
     func session(for view: Ghostty.SurfaceView) -> Session? {
-        sessions.first { $0.view === view }
+        sessions.first { $0.pane(for: view) != nil }
     }
+
+    // MARK: Sessions
 
     /// `config` is what the new session inherits from the one it was opened
     /// from - the working directory above all, plus whatever else ghostty's
@@ -156,39 +237,67 @@ final class SessionManager {
     /// shown still runs, at the 800x600 frame the view starts with.
     @discardableResult
     func newSession(config: Ghostty.SurfaceConfiguration? = nil, select selectNew: Bool = true) -> Session? {
-        guard let app = ghostty.app else { return nil }
-        let view = GutterSurfaceView(app, baseConfig: config, uuid: nil)
-        let session = Session(view: view)
+        guard let pane = makePane(config: config) else { return nil }
+        let session = Session(pane: pane)
         sessions.append(session)
+        cancellables[pane.view.id] = subscribe(pane, in: session)
         syncOcclusion()
+
+        if selectNew {
+            select(session)
+        } else {
+            onListChanged?()
+        }
+        return session
+    }
+
+    private func makePane(config: Ghostty.SurfaceConfiguration?) -> Pane? {
+        guard let app = ghostty.app else { return nil }
+        return Pane(view: Ghostty.SurfaceView(app, baseConfig: config, uuid: nil))
+    }
+
+    /// Every per-surface signal the sidebar reads, for one pane. Cancelling the
+    /// returned token cancels all of them.
+    private func subscribe(_ pane: Pane, in session: Session) -> AnyCancellable {
+        let view = pane.view
+
+        /// A pane whose session or self has since been closed must not write
+        /// back into the sidebar.
+        func live() -> Bool {
+            sessions.contains { $0 === session } && session.pane(for: view) != nil
+        }
 
         // Shell-driven title (SurfaceView coalesces updates internally).
         let titleSub = view.$title
             .receive(on: RunLoop.main)
             .sink { [weak self] title in
-                session.title = title
-                self?.updateReadySeen(session)
-                self?.onListChanged?()
+                guard let self, live() else { return }
+                pane.title = title
+                self.updateReadySeen(pane, in: session)
+                self.onListChanged?()
                 // A retitle means the shell ran something, which is the only
                 // hint we get that the branch may have moved.
-                self?.scheduleBranchCheck(session)
+                self.scheduleBranchCheck(pane)
             }
 
         // Working directory, for the sidebar's folder + branch line.
         let pwdSub = view.$pwd
             .receive(on: RunLoop.main)
             .sink { [weak self] pwd in
-                self?.updateLocation(session, pwd: pwd)
+                guard let self, live() else { return }
+                self.updateLocation(pane, pwd: pwd)
             }
 
-        // Bell/activity: dot on any tab that isn't the selected one.
+        // Bell/activity: dot on any pane that isn't being looked at. A pane
+        // hidden behind a zoom counts as not looked at, even in the selected
+        // session.
         let bellSub = NotificationCenter.default.publisher(for: .ghosttyBellDidRing)
             .filter { ($0.object as? Ghostty.SurfaceView) === view }
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                guard let self, self.sessions.contains(where: { $0 === session }) else { return }
-                guard session !== self.selected else { return }
-                session.hasActivity = true
+                guard let self, live() else { return }
+                guard !self.isVisible(pane, in: session) else { return }
+                pane.hasActivity = true
                 self.onListChanged?()
             }
 
@@ -202,44 +311,174 @@ final class SessionManager {
         let progressSub = view.$progressReport
             .receive(on: RunLoop.main)
             .sink { [weak self] report in
-                guard let self, self.sessions.contains(where: { $0 === session }) else { return }
+                guard let self, live() else { return }
                 let state = report?.state
                 let working = state == .set || state == .indeterminate
                 let finished = !working
                 // A .pause can arrive while already idle (the tool never
                 // reported work), so the dot has to key off both flags.
-                guard working != session.isWorking || finished != session.workFinished
+                guard working != pane.isWorking || finished != pane.workFinished
                 else { return }
-                session.isWorking = working
-                session.workFinished = finished
-                self.updateReadySeen(session)
+                pane.isWorking = working
+                pane.workFinished = finished
+                self.updateReadySeen(pane, in: session)
                 self.onListChanged?()
             }
 
-        cancellables[session.id] = AnyCancellable {
+        // Which pane the user is actually in, clicks included. The surface
+        // stamps focusInstant in `focusDidChange` every time it gains focus,
+        // and unlike `focused` it is @Published - so this is the vendored
+        // signal for "this pane took focus", and Gutter tracks no responders
+        // of its own.
+        let focusSub = view.$focusInstant
+            .receive(on: RunLoop.main)
+            .sink { [weak self] instant in
+                guard let self, instant != nil, live() else { return }
+                self.focusPane(view)
+            }
+
+        return AnyCancellable {
             titleSub.cancel()
             pwdSub.cancel()
             bellSub.cancel()
             progressSub.cancel()
+            focusSub.cancel()
+        }
+    }
+
+    // MARK: Panes
+
+    /// Split `view`'s pane, putting a new surface beside it. `config` is what
+    /// libghostty derived from the surface the split fired on, so the new pane
+    /// inherits its working directory.
+    func split(_ view: Ghostty.SurfaceView,
+               direction: SplitTree<Ghostty.SurfaceView>.NewDirection,
+               config: Ghostty.SurfaceConfiguration?) {
+        guard let session = session(for: view),
+              let pane = makePane(config: config),
+              let tree = try? session.tree.inserting(view: pane.view, at: view, direction: direction)
+        else { return }
+
+        session.tree = tree
+        session.add(pane)
+        session.focusedPane = pane
+        cancellables[pane.view.id] = subscribe(pane, in: session)
+        treeChanged(session)
+        onListChanged?()
+        Ghostty.moveFocus(to: pane.view, from: view)
+    }
+
+    /// Close one pane. The last pane closes the session - that is what makes a
+    /// sidebar row disappear.
+    func closePane(_ view: Ghostty.SurfaceView) {
+        guard let session = session(for: view), let pane = session.pane(for: view) else { return }
+        guard session.panes.count > 1 else {
+            remove(session)
+            return
+        }
+        guard let node = session.tree.root?.node(view: view) else { return }
+
+        // Pick the survivor before the node goes away.
+        let survivor = session.tree.focusTarget(for: .next, from: node)
+        session.tree = session.tree.removing(node)
+        release(pane)
+        session.drop(pane)
+
+        if session.focusedPane === pane,
+           let survivor, let next = session.pane(for: survivor) {
+            session.focusedPane = next
         }
 
-        if selectNew {
-            select(session)
-        } else {
-            onListChanged?()
-        }
-        return session
+        treeChanged(session)
+        onListChanged?()
+        if session === selected { Ghostty.moveFocus(to: session.view) }
     }
+
+    /// The pane took focus. Drives the row's title and clears what the user is
+    /// now looking at.
+    func focusPane(_ view: Ghostty.SurfaceView) {
+        guard let session = session(for: view), let pane = session.pane(for: view),
+              session.focusedPane !== pane else { return }
+        session.focusedPane = pane
+        markVisiblePanesSeen(session)
+        onListChanged?()
+    }
+
+    /// Spatial or ordinal focus movement, from the core's `goto_split`.
+    func movePaneFocus(from view: Ghostty.SurfaceView, direction: Ghostty.SplitFocusDirection) {
+        guard let session = session(for: view),
+              let node = session.tree.root?.node(view: view),
+              let target = session.tree.focusTarget(
+                for: direction.toSplitTreeFocusDirection(), from: node)
+        else { return }
+        focusPane(target)
+        Ghostty.moveFocus(to: target, from: view)
+    }
+
+    /// Zoom is a property of the tree: one node takes the whole area and the
+    /// rest stop rendering (see `syncOcclusion`).
+    func toggleZoom(_ view: Ghostty.SurfaceView) {
+        guard let session = session(for: view),
+              let node = session.tree.root?.node(view: view) else { return }
+        session.tree = .init(root: session.tree.root,
+                             zoomed: session.tree.zoomed == nil ? node : nil)
+        treeChanged(session)
+        onListChanged?()
+    }
+
+    func equalize(_ view: Ghostty.SurfaceView) {
+        guard let session = session(for: view) else { return }
+        session.tree = session.tree.equalized()
+        treeChanged(session)
+    }
+
+    /// Keyboard resize, from the core's `resize_split`. The tree needs the area
+    /// it is laid out in to turn pixels into a ratio.
+    func resize(_ view: Ghostty.SurfaceView,
+                direction: Ghostty.SplitResizeDirection,
+                amount: UInt16) {
+        guard let session = session(for: view),
+              let node = session.tree.root?.node(view: view) else { return }
+        let spatial: SplitTree<Ghostty.SurfaceView>.Spatial.Direction = switch direction {
+        case .up: .up
+        case .down: .down
+        case .left: .left
+        case .right: .right
+        }
+        guard let tree = try? session.tree.resizing(
+            node: node, by: amount, in: spatial, with: terminalBounds) else { return }
+        session.tree = tree
+        treeChanged(session)
+    }
+
+    /// Divider drag, from the SwiftUI `SplitView`'s ratio binding.
+    func setRatio(_ session: Session, node: SplitTree<Ghostty.SurfaceView>.Node, to ratio: Double) {
+        guard let tree = try? session.tree.replacing(node: node, with: node.resizing(to: ratio))
+        else { return }
+        session.tree = tree
+        treeChanged(session)
+    }
+
+    /// Every structural change goes through here. Occlusion has to be resynced
+    /// with the tree and not just on zoom: `inserting` and `resizing` both
+    /// return a tree with the zoom cleared (`SplitTree.swift:129,332`), so a
+    /// resize while zoomed silently makes hidden panes visible again.
+    private func treeChanged(_ session: Session) {
+        syncOcclusion()
+        onTreeChanged?(session)
+    }
+
+    // MARK: Location
 
     /// The folder is free; the branch costs a git process, so it only runs when
     /// the directory actually changed, and off the main thread.
-    private func updateLocation(_ session: Session, pwd: String?) {
-        guard session.pwd != pwd else { return }
-        session.pwd = pwd
-        session.folder = pwd.map { $0 == NSHomeDirectory() ? "~" : ($0 as NSString).lastPathComponent }
-        session.branch = nil
+    private func updateLocation(_ pane: Pane, pwd: String?) {
+        guard pane.pwd != pwd else { return }
+        pane.pwd = pwd
+        pane.folder = pwd.map { $0 == NSHomeDirectory() ? "~" : ($0 as NSString).lastPathComponent }
+        pane.branch = nil
         onListChanged?()
-        checkBranch(session)
+        checkBranch(pane)
     }
 
     /// `git switch` moves the branch without moving the directory, so pwd
@@ -249,22 +488,22 @@ final class SessionManager {
     /// then the prompt) and each check costs a git process. Kept short: the
     /// vendored `setTitle` already sits on the event for 75ms, and past about
     /// 200ms the sidebar visibly lags the `git switch` that caused it.
-    private func scheduleBranchCheck(_ session: Session) {
-        session.branchCheck?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.checkBranch(session) }
-        session.branchCheck = work
+    private func scheduleBranchCheck(_ pane: Pane) {
+        pane.branchCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.checkBranch(pane) }
+        pane.branchCheck = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
     }
 
-    private func checkBranch(_ session: Session) {
-        session.branchCheck?.cancel()
-        guard let pwd = session.pwd else { return }
+    private func checkBranch(_ pane: Pane) {
+        pane.branchCheck?.cancel()
+        guard let pwd = pane.pwd else { return }
         DispatchQueue.global(qos: .utility).async {
             let branch = Self.branch(in: pwd)
             DispatchQueue.main.async { [weak self] in
-                guard let self, session.pwd == pwd, session.branch != branch,
-                      self.sessions.contains(where: { $0 === session }) else { return }
-                session.branch = branch
+                guard let self, pane.pwd == pwd, pane.branch != branch,
+                      self.session(for: pane.view) != nil else { return }
+                pane.branch = branch
                 self.onListChanged?()
             }
         }
@@ -296,12 +535,13 @@ final class SessionManager {
         onListChanged?()
     }
 
+    // MARK: Selection and visibility
+
     func select(_ session: Session?) {
         guard session !== selected else { return }
         selected = session
         syncOcclusion()
-        session?.hasActivity = false
-        if let session { updateReadySeen(session) }
+        if let session { markVisiblePanesSeen(session) }
         onSelectionChanged?(session)
         onListChanged?()
     }
@@ -313,14 +553,24 @@ final class SessionManager {
         syncOcclusion()
     }
 
-    /// Tell libghostty which surfaces are actually being looked at: only the
-    /// selected one, and only while the window is on screen.
+    /// Whether the user can actually see this pane: its session is selected,
+    /// and no zoom is hiding it.
+    private func isVisible(_ pane: Pane, in session: Session) -> Bool {
+        guard session === selected else { return false }
+        guard let zoomed = session.tree.zoomed else { return true }
+        return zoomed.leaves().contains { $0 === pane.view }
+    }
+
+    /// Tell libghostty which surfaces are actually being looked at: only panes
+    /// of the selected session, only those a zoom isn't hiding, and only while
+    /// the window is on screen.
     ///
     /// Without this, libghostty draws every surface it has, at full render
     /// thread QoS, forever - a background session with a busy agent in it
     /// paints frames into a layer that is not in any view hierarchy, and its
     /// window-sized Metal drawables stay resident because they keep being
-    /// presented. Eleven sessions measured ~960MB of IOSurface that way.
+    /// presented. Eleven sessions measured ~960MB of IOSurface that way. Panes
+    /// multiply that, so a zoomed-out pane has to go dark too.
     ///
     /// ghostty's own shell makes this call from
     /// `BaseTerminalController.windowDidChangeOcclusionState`, which lives in
@@ -334,21 +584,31 @@ final class SessionManager {
     /// never selected still works exactly as it did.
     private func syncOcclusion() {
         for session in sessions {
-            let visible = windowVisible && session === selected
-            guard session.rendererVisible != visible,
-                  let surface = session.view.surface else { continue }
-            ghostty_surface_set_occlusion(surface, visible)
-            session.rendererVisible = visible
+            for pane in session.panes {
+                let visible = windowVisible && isVisible(pane, in: session)
+                guard pane.rendererVisible != visible,
+                      let surface = pane.view.surface else { continue }
+                ghostty_surface_set_occlusion(surface, visible)
+                pane.rendererVisible = visible
+            }
         }
     }
 
-    /// Visiting a tab marks its current ready state as read; a tab that is no
-    /// longer ready forgets it saw one, so the next hand-off lights the dot.
-    private func updateReadySeen(_ session: Session) {
-        if !session.isReady {
-            session.readySeen = false
-        } else if session === selected, NSApp.isActive {
-            session.readySeen = true
+    /// Looking at a pane marks its current ready state as read, and clears the
+    /// bell. A pane that is no longer ready forgets it saw one, so the next
+    /// hand-off lights the dot again.
+    private func markVisiblePanesSeen(_ session: Session) {
+        for pane in session.panes {
+            if isVisible(pane, in: session) { pane.hasActivity = false }
+            updateReadySeen(pane, in: session)
+        }
+    }
+
+    private func updateReadySeen(_ pane: Pane, in session: Session) {
+        if !pane.isReady {
+            pane.readySeen = false
+        } else if isVisible(pane, in: session), NSApp.isActive {
+            pane.readySeen = true
         }
     }
 
@@ -379,8 +639,18 @@ final class SessionManager {
         return nil
     }
 
+    /// Lands on the pane that actually wants you, not just the row: with panes
+    /// the dot no longer tells you where in the row to look.
     func selectNextNeedingAttention() {
         guard let next = nextNeedingAttention else { return }
+        if let wanting = next.panes.first(where: \.needsAttention) {
+            next.focusedPane = wanting
+            // A zoom on some other pane would hide the one we just moved to.
+            if let zoomed = next.tree.zoomed, !zoomed.leaves().contains(where: { $0 === wanting.view }) {
+                next.tree = .init(root: next.tree.root, zoomed: nil)
+                treeChanged(next)
+            }
+        }
         select(next)
     }
 
@@ -392,11 +662,18 @@ final class SessionManager {
         select(sessions[next])
     }
 
+    // MARK: Closing
+
+    /// Ask libghostty to close every pane. Each one confirms if it needs to and
+    /// comes back through `closePane`; the last one removes the session.
     func close(_ session: Session) {
-        if let surface = session.view.surface {
-            ghostty.requestClose(surface: surface)
-        } else {
+        let surfaces = session.panes.compactMap(\.view.surface)
+        guard !surfaces.isEmpty else {
             remove(session)
+            return
+        }
+        for surface in surfaces {
+            ghostty.requestClose(surface: surface)
         }
     }
 
@@ -405,10 +682,15 @@ final class SessionManager {
         close(selected)
     }
 
+    /// Drop a pane's subscriptions and take its surface out of the hierarchy.
+    private func release(_ pane: Pane) {
+        cancellables[pane.view.id] = nil
+        pane.branchCheck?.cancel()
+        pane.view.removeFromSuperview()
+    }
+
     func remove(_ session: Session) {
-        cancellables[session.id] = nil
-        session.branchCheck?.cancel()
-        session.view.removeFromSuperview()
+        for pane in session.panes { release(pane) }
 
         if let idx = sessions.firstIndex(where: { $0 === session }) {
             sessions.remove(at: idx)

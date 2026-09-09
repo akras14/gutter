@@ -113,9 +113,10 @@ Same syntax as ghostty - `keybind = super+n=unbind`, `keybind = super+d=...` -
 and it is the one setting where Gutter and ghostty genuinely differ, because
 Gutter implements less than the core can ask for.
 
-**Actions that do nothing here.** Splits, the command palette, the quick
-terminal and new-window are not implemented - one window, one surface - so the
-core's keys for them are dead keys. `⌘N` is the one you'll actually hit:
+**Actions that do nothing here.** The command palette, the quick terminal and
+new-window are not implemented - one window - so the core's keys for them are
+dead keys. Splits *are* implemented, and use the core's own keys unchanged.
+`⌘N` is the one you'll actually hit:
 ghostty binds it to `new_window`, and in Gutter nothing happens. Unbind it if a
 silent ⌘N bothers you:
 

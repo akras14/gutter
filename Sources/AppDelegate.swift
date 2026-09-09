@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         Self.ensureConfigFile(alerting: false)
         LauncherConfig.ensureFile()
 
-        let windowController = MainWindowController(sessions: sessions)
+        let windowController = MainWindowController(sessions: sessions, ghostty: ghostty)
         self.windowController = windowController
 
         buildMenus()
@@ -167,14 +167,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
 
     // cmd-w is a menu key equivalent, so it fires whichever window is key -
     // including the diff window, which would otherwise have closed a terminal
-    // tab behind the user's back. Close the key window instead and hand focus
-    // back to the main one; only the main window closes a session.
-    @objc func closeTab(_ sender: Any?) {
+    // pane behind the user's back. Close the key window instead and hand focus
+    // back to the main one; only the main window closes anything of a session's.
+    //
+    // cmd-w closes one pane and alt-cmd-w the whole session, matching ghostty,
+    // where they are close_surface and close_tab. Both go through the core so
+    // that a pane running something gets its confirmation prompt; it comes back
+    // as ghosttyCloseSurface, and closing a session's last pane is what removes
+    // the sidebar row.
+    @objc func closePane(_ sender: Any?) {
         if let key = NSApp.keyWindow, key !== windowController.window {
             key.performClose(sender)
             windowController.window?.makeKeyAndOrderFront(nil)
             return
         }
+        guard let surface = sessions.selected?.view.surface else { return }
+        ghostty.requestClose(surface: surface)
+    }
+
+    @objc func closeSession(_ sender: Any?) {
         sessions.closeSelected()
     }
 
@@ -352,5 +363,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     @objc func useSelectionForFind(_ sender: Any?) {
         guard let view = sessions.selected?.view else { return }
         GhosttyBridge.perform("search_selection", on: view)
+    }
+
+    // MARK: Split actions
+    //
+    // These ask libghostty rather than editing the pane tree directly, so the
+    // menu and ghostty's own keybind for the same thing (cmd-D and friends,
+    // which the core claims before the menu ever sees them) meet on one path:
+    // the core sends its action back and `GhosttyBridge` applies it. The core
+    // also decides when an action is performable - `goto_split` on an unsplit
+    // session does nothing - which is why these don't guard on that here.
+
+    @objc func splitPaneRight(_ sender: Any?) { split(GHOSTTY_SPLIT_DIRECTION_RIGHT) }
+    @objc func splitPaneDown(_ sender: Any?) { split(GHOSTTY_SPLIT_DIRECTION_DOWN) }
+    @objc func nextPane(_ sender: Any?) { moveFocus(.next) }
+    @objc func previousPane(_ sender: Any?) { moveFocus(.previous) }
+
+    @objc func zoomPane(_ sender: Any?) {
+        guard let surface = sessions.selected?.view.surface else { return }
+        ghostty.splitToggleZoom(surface: surface)
+    }
+
+    @objc func equalizePanes(_ sender: Any?) {
+        guard let surface = sessions.selected?.view.surface else { return }
+        ghostty.splitEqualize(surface: surface)
+    }
+
+    private func split(_ direction: ghostty_action_split_direction_e) {
+        guard let surface = sessions.selected?.view.surface else { return }
+        ghostty.split(surface: surface, direction: direction)
+    }
+
+    private func moveFocus(_ direction: Ghostty.SplitFocusDirection) {
+        guard let surface = sessions.selected?.view.surface else { return }
+        ghostty.splitMoveFocus(surface: surface, direction: direction)
     }
 }

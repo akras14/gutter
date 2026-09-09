@@ -1,8 +1,8 @@
 # Gutter
 
-A native macOS terminal app: one window, a sidebar of sessions, one live terminal
-surface. It embeds libghostty v1.3.1 as a static library and reuses ghostty's own Swift
-wrapper. `README.md` has the architecture diagram and the full build notes;
+A native macOS terminal app: one window, a sidebar of sessions, and the selected
+session's tree of terminal panes. It embeds libghostty v1.3.1 as a static library and
+reuses ghostty's own Swift wrapper. `README.md` has the architecture diagram and the full build notes;
 `DESIGN.md` has the design decisions and what was deliberately left out.
 `competitors/` holds research on adjacent tools: what they do, what was verified
 in their source, and which of Gutter's decisions it bears on.
@@ -21,12 +21,22 @@ no build-script change.
 ## Constraints
 
 - **Read `DESIGN.md` first.** It holds every design decision: what Gutter is for,
-  what was declined (splits, a `gh` dependency), what is deliberate and must not
-  be "fixed" (whole-file diffs), and what is deferred. Read it at the start of any
+  what was declined (a `gh` dependency, pane drag-and-drop, split persistence),
+  what was declined and later reversed (splits - read that section before touching
+  panes), what is deliberate and must not be "fixed" (whole-file diffs), and what
+  is deferred. Read it at the start of any
   session that proposes a feature, changes behavior, or adds a dependency - not
   just when a change looks design-shaped. Several of the obvious suggestions are
   already recorded there as rejected, with reasons that aren't visible in the code.
   When a decision is made or reversed, update it in the same commit.
+- **Look in `Vendor/` before writing terminal-area UI.** The wrapper carries far
+  more than the surface: the find bar (`SurfaceSearchOverlay`), split views and
+  their dividers (`SplitView`), the split tree (`SplitTree`), unfocused dimming,
+  resize overlay, progress bar, bell border, pointer cursor and the inspector are
+  all vendored and already compiling. Splits shrank from a planned ~220-line
+  renderer to ~60 lines by composing them, and deleted two files on the way. If
+  you are about to hand-write something that appears inside a terminal pane, grep
+  `Vendor/` first - see `DESIGN.md`, "The terminal area is ghostty's, not ours".
 - **Edit `Sources/` only.** `Vendor/` is ghostty's Swift wrapper, copied verbatim by
   `vendor.sh`, and `deps/` holds the prebuilt `libghostty.a`, headers, and resources.
   Edits to either are wiped by the next ghostty update. If a change seems to need one,

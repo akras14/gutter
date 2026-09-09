@@ -14,11 +14,13 @@ final class GhosttyBridge {
         self.ghostty = ghostty
 
         let nc = NotificationCenter.default
+        // One pane, not the whole session: closing the last pane is what
+        // removes the sidebar row (see SessionManager.closePane). This is
+        // ghostty's own cmd-w (close_surface); alt-cmd-w is close_tab below.
         nc.addObserver(forName: Ghostty.Notification.ghosttyCloseSurface, object: nil, queue: .main) {
             [weak self] note in
-            guard let self, let view = note.object as? Ghostty.SurfaceView,
-                  let session = self.sessions.session(for: view) else { return }
-            self.sessions.remove(session)
+            guard let view = note.object as? Ghostty.SurfaceView else { return }
+            self?.sessions.closePane(view)
         }
 
         // Ghostty's own keybinds (cmd-t/cmd-w etc.) are consumed by the core and
@@ -53,6 +55,49 @@ final class GhosttyBridge {
             }
         }
 
+        // Splits. The keys are ghostty's own defaults - cmd-D, cmd-[/], the
+        // opt-cmd and ctrl-cmd arrows - claimed by the core, so `main.swift`
+        // overrides none of them. These turn the actions the core sends back
+        // into changes to the session's pane tree.
+        nc.addObserver(forName: Ghostty.Notification.ghosttyNewSplit, object: nil, queue: .main) {
+            [weak self] note in
+            guard let self, let view = note.object as? Ghostty.SurfaceView,
+                  let raw = note.userInfo?["direction"] as? ghostty_action_split_direction_e,
+                  let direction = Self.newDirection(raw) else { return }
+            // The payload carries the config libghostty derived from the
+            // surface the split fired on, so the new pane inherits its
+            // working directory - same deal as a new tab.
+            let config = note.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+                as? Ghostty.SurfaceConfiguration
+            self.sessions.split(view, direction: direction, config: config)
+        }
+        nc.addObserver(forName: Ghostty.Notification.ghosttyFocusSplit, object: nil, queue: .main) {
+            [weak self] note in
+            guard let self, let view = note.object as? Ghostty.SurfaceView,
+                  let direction = note.userInfo?[Ghostty.Notification.SplitDirectionKey]
+                    as? Ghostty.SplitFocusDirection else { return }
+            self.sessions.movePaneFocus(from: view, direction: direction)
+        }
+        nc.addObserver(forName: Ghostty.Notification.didResizeSplit, object: nil, queue: .main) {
+            [weak self] note in
+            guard let self, let view = note.object as? Ghostty.SurfaceView,
+                  let direction = note.userInfo?[Ghostty.Notification.ResizeSplitDirectionKey]
+                    as? Ghostty.SplitResizeDirection,
+                  let amount = note.userInfo?[Ghostty.Notification.ResizeSplitAmountKey]
+                    as? UInt16 else { return }
+            self.sessions.resize(view, direction: direction, amount: amount)
+        }
+        nc.addObserver(forName: Ghostty.Notification.didEqualizeSplits, object: nil, queue: .main) {
+            [weak self] note in
+            guard let view = note.object as? Ghostty.SurfaceView else { return }
+            self?.sessions.equalize(view)
+        }
+        nc.addObserver(forName: Ghostty.Notification.didToggleSplitZoom, object: nil, queue: .main) {
+            [weak self] note in
+            guard let view = note.object as? Ghostty.SurfaceView else { return }
+            self?.sessions.toggleZoom(view)
+        }
+
         // Ghostty's toggle_fullscreen action -> native fullscreen on the surface's window.
         nc.addObserver(forName: Ghostty.Notification.ghosttyToggleFullscreen, object: nil, queue: .main) { note in
             (note.object as? Ghostty.SurfaceView)?.window?.toggleFullScreen(nil)
@@ -61,6 +106,18 @@ final class GhosttyBridge {
 }
 
 extension GhosttyBridge {
+    private static func newDirection(
+        _ direction: ghostty_action_split_direction_e
+    ) -> SplitTree<Ghostty.SurfaceView>.NewDirection? {
+        switch direction {
+        case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
+        case GHOSTTY_SPLIT_DIRECTION_DOWN: return .down
+        case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
+        case GHOSTTY_SPLIT_DIRECTION_UP: return .up
+        default: return nil
+        }
+    }
+
     /// What libghostty hands a new tab opened from `view`: working directory,
     /// font size, and whatever else the `*-inherit-*` config keys turn on.
     /// This is the same call ghostty's own app makes for its `new_tab` action,
