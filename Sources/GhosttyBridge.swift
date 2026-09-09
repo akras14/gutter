@@ -5,12 +5,33 @@ import GhosttyKit
 /// action enum, and surface<->session lookup lives here; the rest of the app
 /// speaks only "sessions" and "windows". When updating ghostty, this is the
 /// file to audit for API drift.
+///
+/// One bridge for the whole app, however many windows are open: libghostty
+/// posts to the default NotificationCenter, so an observer per window would see
+/// every other window's actions too. The surface in the payload is what says
+/// which window an action belongs to - `sessions(of:)` below - and an action
+/// with no surface (libghostty's app-target variants) falls to the front
+/// window.
 final class GhosttyBridge {
-    private let sessions: SessionManager
+    private unowned let app: AppDelegate
     private let ghostty: Ghostty.App
 
-    init(sessions: SessionManager, ghostty: Ghostty.App) {
-        self.sessions = sessions
+    /// The sessions of the window holding this surface. nil once the surface
+    /// has been closed, which is what makes every observer below a no-op for a
+    /// surface that is on its way out.
+    private func sessions(of view: Ghostty.SurfaceView) -> SessionManager? {
+        app.window(owning: view)?.sessions
+    }
+
+    /// Same, from a notification: the surface it fired on, or - for an
+    /// app-target action, which carries none - the front window.
+    private func sessions(for note: Notification) -> SessionManager {
+        guard let view = note.object as? Ghostty.SurfaceView else { return app.sessions }
+        return sessions(of: view) ?? app.sessions
+    }
+
+    init(app: AppDelegate, ghostty: Ghostty.App) {
+        self.app = app
         self.ghostty = ghostty
 
         let nc = NotificationCenter.default
@@ -20,7 +41,7 @@ final class GhosttyBridge {
         nc.addObserver(forName: Ghostty.Notification.ghosttyCloseSurface, object: nil, queue: .main) {
             [weak self] note in
             guard let view = note.object as? Ghostty.SurfaceView else { return }
-            self?.sessions.closePane(view)
+            self?.sessions(of: view)?.closePane(view)
         }
 
         // Ghostty's own keybinds (cmd-t/cmd-w etc.) are consumed by the core and
@@ -33,12 +54,35 @@ final class GhosttyBridge {
             // Dropping it opened every session in the home directory instead.
             let config = note.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
                 as? Ghostty.SurfaceConfiguration
-            self?.sessions.newSession(config: config)
+            // The new tab joins the window the keybind fired in, not whichever
+            // window happens to be in front.
+            self?.sessions(for: note).newSession(config: config)
+        }
+
+        // ⌘N. The core's own macOS default is `super+n=new_window`, so with a
+        // surface focused the key never reaches the menu bar - this is the
+        // path it takes instead, the same shape as ⌘T above. The payload is
+        // the window-context inherited config, so the new window's first
+        // session starts where the old one was.
+        nc.addObserver(forName: Ghostty.Notification.ghosttyNewWindow, object: nil, queue: .main) {
+            [weak self] note in
+            let config = note.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+                as? Ghostty.SurfaceConfiguration
+            self?.app.openWindow(config: config)
+        }
+
+        // ⇧⌘W (the core's `close_window`). Closes the whole window the surface
+        // is in, sessions and all - `close_surface` is ⌘W and `close_tab` is
+        // ⌥⌘W. performClose, so the window's own close path runs.
+        nc.addObserver(forName: .ghosttyCloseWindow, object: nil, queue: .main) { [weak self] note in
+            guard let view = note.object as? Ghostty.SurfaceView else { return }
+            self?.app.window(owning: view)?.window?.performClose(nil)
         }
         nc.addObserver(forName: .ghosttyCloseTab, object: nil, queue: .main) { [weak self] note in
             guard let self, let view = note.object as? Ghostty.SurfaceView,
-                  let session = self.sessions.session(for: view) else { return }
-            self.sessions.close(session)
+                  let sessions = self.sessions(of: view),
+                  let session = sessions.session(for: view) else { return }
+            sessions.close(session)
         }
         nc.addObserver(forName: Ghostty.Notification.ghosttyGotoTab, object: nil, queue: .main) {
             [weak self] note in
@@ -46,12 +90,13 @@ final class GhosttyBridge {
                   let any = note.userInfo?[Ghostty.Notification.GotoTabKey],
                   let tab = any as? ghostty_action_goto_tab_e else { return }
             let raw = tab.rawValue
+            let sessions = self.sessions(for: note)
             if raw > 0 {
-                self.sessions.select(index: Int(raw) - 1)
+                sessions.select(index: Int(raw) - 1)
             } else if raw == GHOSTTY_GOTO_TAB_PREVIOUS.rawValue {
-                self.sessions.cycle(-1)
+                sessions.cycle(-1)
             } else if raw == GHOSTTY_GOTO_TAB_NEXT.rawValue {
-                self.sessions.cycle(1)
+                sessions.cycle(1)
             }
         }
 
@@ -69,14 +114,14 @@ final class GhosttyBridge {
             // working directory - same deal as a new tab.
             let config = note.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
                 as? Ghostty.SurfaceConfiguration
-            self.sessions.split(view, direction: direction, config: config)
+            self.sessions(of: view)?.split(view, direction: direction, config: config)
         }
         nc.addObserver(forName: Ghostty.Notification.ghosttyFocusSplit, object: nil, queue: .main) {
             [weak self] note in
             guard let self, let view = note.object as? Ghostty.SurfaceView,
                   let direction = note.userInfo?[Ghostty.Notification.SplitDirectionKey]
                     as? Ghostty.SplitFocusDirection else { return }
-            self.sessions.movePaneFocus(from: view, direction: direction)
+            self.sessions(of: view)?.movePaneFocus(from: view, direction: direction)
         }
         nc.addObserver(forName: Ghostty.Notification.didResizeSplit, object: nil, queue: .main) {
             [weak self] note in
@@ -85,17 +130,17 @@ final class GhosttyBridge {
                     as? Ghostty.SplitResizeDirection,
                   let amount = note.userInfo?[Ghostty.Notification.ResizeSplitAmountKey]
                     as? UInt16 else { return }
-            self.sessions.resize(view, direction: direction, amount: amount)
+            self.sessions(of: view)?.resize(view, direction: direction, amount: amount)
         }
         nc.addObserver(forName: Ghostty.Notification.didEqualizeSplits, object: nil, queue: .main) {
             [weak self] note in
             guard let view = note.object as? Ghostty.SurfaceView else { return }
-            self?.sessions.equalize(view)
+            self?.sessions(of: view)?.equalize(view)
         }
         nc.addObserver(forName: Ghostty.Notification.didToggleSplitZoom, object: nil, queue: .main) {
             [weak self] note in
             guard let view = note.object as? Ghostty.SurfaceView else { return }
-            self?.sessions.toggleZoom(view)
+            self?.sessions(of: view)?.toggleZoom(view)
         }
 
         // Ghostty's toggle_fullscreen action -> native fullscreen on the surface's window.
@@ -118,14 +163,21 @@ extension GhosttyBridge {
         }
     }
 
-    /// What libghostty hands a new tab opened from `view`: working directory,
-    /// font size, and whatever else the `*-inherit-*` config keys turn on.
-    /// This is the same call ghostty's own app makes for its `new_tab` action,
-    /// so the user's config decides what carries over - not this file.
-    static func inheritedConfig(from view: Ghostty.SurfaceView) -> Ghostty.SurfaceConfiguration? {
+    /// What libghostty hands a new tab - or window - opened from `view`:
+    /// working directory, font size, and whatever else the `*-inherit-*` config
+    /// keys turn on. This is the same call ghostty's own app makes for its
+    /// `new_tab` / `new_window` actions, so the user's config decides what
+    /// carries over - not this file. The context is why: ghostty has separate
+    /// `window-inherit-working-directory` and `tab-inherit-working-directory`
+    /// keys, and passing the wrong one here would quietly ignore whichever the
+    /// user set.
+    static func inheritedConfig(
+        from view: Ghostty.SurfaceView,
+        context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_TAB
+    ) -> Ghostty.SurfaceConfiguration? {
         guard let surface = view.surface else { return nil }
         return Ghostty.SurfaceConfiguration(
-            from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB))
+            from: ghostty_surface_inherited_config(surface, context))
     }
 
     /// Fire one of ghostty's named keybind actions against a surface.

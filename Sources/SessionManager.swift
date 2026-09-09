@@ -165,6 +165,11 @@ final class Session {
 
 /// Owns the list of terminal sessions, which one is selected, and the pane tree
 /// inside each.
+///
+/// One per window, not one per app: a window is a whole independent sidebar of
+/// sessions. Nothing here knows about other windows - `AppDelegate` owns them
+/// and `GhosttyBridge` routes libghostty's app-wide notifications to the right
+/// one by surface.
 final class SessionManager {
     private let ghostty: Ghostty.App
 
@@ -195,8 +200,8 @@ final class SessionManager {
     private(set) var sessions: [Session] = []
     private(set) var selected: Session?
 
-    /// Whether the main window is on screen. Half of the occlusion decision;
-    /// `selected` is the other half. See `syncOcclusion`.
+    /// Whether this manager's window is on screen. One of the three parts of
+    /// "is anyone looking at this pane" - see `isVisible` and `syncOcclusion`.
     private var windowVisible = true
 
     /// The size of the terminal area, reported by the container on layout.
@@ -551,12 +556,26 @@ final class SessionManager {
         guard windowVisible != visible else { return }
         windowVisible = visible
         syncOcclusion()
+        // Coming back into view reads the selected session, the same way
+        // activating the app does. Both are needed: the two notifications
+        // arrive in either order, and whichever is last is the one that finds
+        // the pane actually visible.
+        if visible, NSApp.isActive, let selected {
+            markVisiblePanesSeen(selected)
+            onListChanged?()
+        }
     }
 
-    /// Whether the user can actually see this pane: its session is selected,
-    /// and no zoom is hiding it.
+    /// Whether the user can actually see this pane: its window is on screen,
+    /// its session is selected there, and no zoom is hiding it.
+    ///
+    /// The window half used to live only in `syncOcclusion`, because with one
+    /// window "the app is active" was close enough to "you can see this" for
+    /// the dot. With several it isn't: a covered window's selected session
+    /// would have its hand-off marked as read on every app activation, and a
+    /// bell in it would never light a dot at all.
     private func isVisible(_ pane: Pane, in session: Session) -> Bool {
-        guard session === selected else { return false }
+        guard windowVisible, session === selected else { return false }
         guard let zoomed = session.tree.zoomed else { return true }
         return zoomed.leaves().contains { $0 === pane.view }
     }
@@ -585,7 +604,7 @@ final class SessionManager {
     private func syncOcclusion() {
         for session in sessions {
             for pane in session.panes {
-                let visible = windowVisible && isVisible(pane, in: session)
+                let visible = isVisible(pane, in: session)
                 guard pane.rendererVisible != visible,
                       let surface = pane.view.surface else { continue }
                 ghostty_surface_set_occlusion(surface, visible)
@@ -641,17 +660,28 @@ final class SessionManager {
 
     /// Lands on the pane that actually wants you, not just the row: with panes
     /// the dot no longer tells you where in the row to look.
-    func selectNextNeedingAttention() {
-        guard let next = nextNeedingAttention else { return }
-        if let wanting = next.panes.first(where: \.needsAttention) {
-            next.focusedPane = wanting
+    ///
+    /// Takes the session rather than finding it, because the walk crosses
+    /// windows: in another window the session that wants you may be the one
+    /// already selected there, which `nextNeedingAttention` skips by design.
+    func selectForAttention(_ session: Session) {
+        if let wanting = session.panes.first(where: \.needsAttention) {
+            session.focusedPane = wanting
             // A zoom on some other pane would hide the one we just moved to.
-            if let zoomed = next.tree.zoomed, !zoomed.leaves().contains(where: { $0 === wanting.view }) {
-                next.tree = .init(root: next.tree.root, zoomed: nil)
-                treeChanged(next)
+            if let zoomed = session.tree.zoomed, !zoomed.leaves().contains(where: { $0 === wanting.view }) {
+                session.tree = .init(root: session.tree.root, zoomed: nil)
+                treeChanged(session)
             }
         }
-        select(next)
+        guard session !== selected else {
+            // `select` early-returns on the session already selected, so the
+            // pane move above still has to be shown and focused.
+            markVisiblePanesSeen(session)
+            onListChanged?()
+            Ghostty.moveFocus(to: session.view)
+            return
+        }
+        select(session)
     }
 
     func cycle(_ direction: Int) {

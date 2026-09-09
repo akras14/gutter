@@ -48,6 +48,13 @@ final class MainSplitViewController: NSSplitViewController {
         splitView.setPosition(width, ofDividerAt: 0)
     }
 
+    /// What a new window copies so it opens looking like the one it came from.
+    /// Zero while the sidebar is collapsed.
+    var sidebarWidth: CGFloat {
+        guard let item = splitViewItems.first, !item.isCollapsed else { return 0 }
+        return item.viewController.view.frame.width
+    }
+
     func show(_ session: Session?) {
         container.show(session)
     }

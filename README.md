@@ -5,7 +5,8 @@ A small native macOS terminal app with a vertical tab sidebar, embedding
 
 ![Gutter: sidebar of sessions on the left, live terminal surface on the right](assets/screenshot.jpg)
 
-One window, one collapsible sidebar. Every pane is a real libghostty surface -
+A window is a collapsible sidebar of sessions and the selected session's panes;
+`⌘N` opens another, with its own sessions. Every pane is a real libghostty surface -
 Metal rendering, PTY handling, VT emulation, input/IME and config loading all come
 from ghostty's core and its own Swift wrapper. The app itself is the window shell,
 sidebar and session manager in AppKit, over a pane tree that is ghostty's own SwiftUI. No Xcode project: everything
@@ -62,8 +63,8 @@ It also began as a question: can a separate app embed libghostty and drive it?
 Yes, in a few thousand lines of AppKit over ghostty's wrapper. Gutter is that
 experiment.
 
-It is not a fork and not a full terminal: one window, a sidebar of sessions,
-one live surface. For a full-featured terminal, use Ghostty or iTerm2.
+It is not a fork and not a full terminal: a sidebar of sessions and one live
+pane tree per window. For a full-featured terminal, use Ghostty or iTerm2.
 
 `DESIGN.md` records why Gutter is shaped this way and what was deliberately
 left out - read it before proposing a feature.
@@ -74,22 +75,26 @@ Runtime ownership, top to bottom:
 
 ```
 main.swift            process setup: GHOSTTY_RESOURCES_DIR, ghostty_init, keybind overrides
-└─ AppDelegate        app lifecycle + menu actions
-   ├─ Ghostty.App     libghostty runtime + config (from Vendor/)
+└─ AppDelegate        app lifecycle + menu actions + the list of windows
+   ├─ Ghostty.App     libghostty runtime + config (from Vendor/), one for the app
    ├─ GhosttyBridge   the only place that knows ghostty's notification names
-   ├─ SessionManager  the session list and which one is selected
-   └─ MainWindowController          window, toolbar, fullscreen chrome
+   └─ MainWindowController          window, toolbar, fullscreen chrome  (one per ⌘N)
+      ├─ SessionManager             this window's session list and which one is selected
       └─ MainSplitViewController
          ├─ SidebarViewController            one table row per session
          └─ TerminalContainerViewController  hosts the selected session's panes
             └─ SessionTreeView (SwiftUI)     ghostty's SplitView + InspectableSurface
 ```
 
-`SessionManager` is the model: it owns sessions and holds no AppKit policy.
+`SessionManager` is the model: it owns sessions and holds no AppKit policy. There is
+one per window - a window is a whole independent sidebar - and `AppDelegate.front` (the
+window that was last key) is what the menu bar acts on.
 `MainWindowController` owns every session-to-UI reaction - sidebar reload, showing the
 selected surface, handing it first responder. `GhosttyBridge` translates libghostty
 notifications into session calls; it is the file to audit for API drift when ghostty is
-updated. A `Session` is a tree of `Pane`s - each a live `Ghostty.SurfaceView` plus its
+updated, and with more than one window it is also the router - libghostty's
+notifications are app-wide, so each one is applied to the window owning the surface it
+names. A `Session` is a tree of `Pane`s - each a live `Ghostty.SurfaceView` plus its
 own state (title, activity dot, progress spinner) - and the row shows a fold of them:
 the focused pane's title, but attention OR-ed across all of them, so an agent handing
 back in a pane you aren't looking at still lights the dot.
@@ -226,6 +231,8 @@ panel and this table but not in the menu bar.
 
 | Keys | Action |
 |---|---|
+| `cmd-n` | New window - its own sidebar, its own sessions, starting in the current session's directory. Also on the Dock icon's right-click menu, which is the way to open one without switching to Gutter first |
+| `cmd-shift-w` | Close the window, sessions and all. `alt-cmd-shift-w` closes them all (ghostty's `close_all_windows`) |
 | `cmd-t` / `cmd-w` | New tab / close pane (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory`. Closing a session's last pane closes the session |
 | `alt-cmd-w` | Close the whole session, however many panes it has (ghostty's `close_tab`) |
 | `cmd-shift-t` | New request: pick a folder and a tool, type a prompt, run it in a new background tab |

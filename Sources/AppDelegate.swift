@@ -28,15 +28,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     func toggleQuickTerminal(_ sender: Any?) {}
     func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool { false }
 
-    private var windowController: MainWindowController!
+    /// Every open main window, most recently focused last: `front` is
+    /// `windows.last`, and becoming key moves a window there. Nothing
+    /// is shared between two windows - each has its own sessions, sidebar and
+    /// changes window - so "which window" is the same question as "which
+    /// session list", and every menu action asks it.
+    private var windows: [MainWindowController] = []
     /// Live only while the New Request sheet is up.
     private var requestSheet: NewRequestSheet?
     private var bridge: GhosttyBridge!        // must be retained or its observers die
-    /// Lazy, not implicitly unwrapped: a Gutter patch in
-    /// Vendor/Ghostty/Ghostty.App.swift reads `delegate?.sessions.sessions.count`,
-    /// which would force-unwrap. Lazy keeps it non-optional while still
-    /// letting it take `ghostty` (a stored property can't reference another).
-    private(set) lazy var sessions = SessionManager(ghostty: ghostty)
+
+    /// The window the menu acts on: the key one, or the last that was key.
+    var front: MainWindowController? { windows.last }
+
+    /// The front window's sessions. Every `sessions.` call in this file means
+    /// "the window the user is looking at", which is why the menu actions read
+    /// unchanged from when there was only one.
+    ///
+    /// Non-optional deliberately: a Gutter patch in
+    /// `Vendor/Ghostty/Ghostty.App.swift` reads
+    /// `delegate?.sessions.sessions.count` and wouldn't compile against an
+    /// optional. `spareSessions` is never reached - that patch runs off a
+    /// surface, and a surface only exists inside a window.
+    var sessions: SessionManager { front?.sessions ?? spareSessions }
+    private lazy var spareSessions = SessionManager(ghostty: ghostty)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard ghostty.readiness == .ready, ghostty.app != nil else {
@@ -50,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         }
 
         ghostty.delegate = self
-        bridge = GhosttyBridge(sessions: sessions, ghostty: ghostty)
+        bridge = GhosttyBridge(app: self, ghostty: ghostty)
 
         // First launch on a machine with no Gutter config: create the (empty)
         // file so cmd-, has something to open. Silent - an empty file changes
@@ -58,21 +73,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         Self.ensureConfigFile(alerting: false)
         LauncherConfig.ensureFile()
 
-        let windowController = MainWindowController(sessions: sessions, ghostty: ghostty)
-        self.windowController = windowController
-
         buildMenus()
-
-        // Create the first session before showing the window: windowDidBecomeKey
-        // (which hands first responder to the terminal surface) fires during
-        // showWindow, and needs a selected session to exist by then.
-        sessions.newSession()
-        windowController.showWindow(nil)
+        openWindow()
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
-        sessions.surface(for: uuid)
+        windows.lazy.compactMap { $0.sessions.surface(for: uuid) }.first
+    }
+
+    // MARK: Windows
+
+    /// Opens a main window. Everything below the window is per-window: its own
+    /// `SessionManager`, its own sidebar, its own changes window. The one thing
+    /// two windows share is libghostty itself - one `Ghostty.App`, one config,
+    /// one notification stream, which is why `GhosttyBridge` has to route by
+    /// surface (see that file).
+    ///
+    /// `config` is what the new window's first session inherits - the working
+    /// directory above all - from the surface the window was opened from.
+    @discardableResult
+    func openWindow(config: Ghostty.SurfaceConfiguration? = nil) -> MainWindowController {
+        let sessions = SessionManager(ghostty: ghostty)
+        let controller = MainWindowController(sessions: sessions, ghostty: ghostty)
+        controller.onSessionsChanged = { [weak self] in self?.updateDockBadge() }
+        controller.onBecomeKey = { [weak self] controller in
+            guard let self, self.windows.last !== controller else { return }
+            self.windows.removeAll { $0 === controller }
+            self.windows.append(controller)
+        }
+        controller.onClose = { [weak self] controller in
+            // Next tick, not now: this fires from windowWillClose, and
+            // dropping the last reference to a window controller in the middle
+            // of AppKit's own close sequence takes the window down with it.
+            DispatchQueue.main.async {
+                self?.windows.removeAll { $0 === controller }
+                self?.updateDockBadge()
+            }
+        }
+
+        // Open beside the window this one came from rather than exactly on top
+        // of it: only one window can hold the frame autosave name, so the rest
+        // arrive at the default size in the default place.
+        if let previous = front {
+            controller.cascade(from: previous)
+        }
+        windows.append(controller)
+
+        // Create the first session before showing the window: windowDidBecomeKey
+        // (which hands first responder to the terminal surface) fires during
+        // showWindow, and needs a selected session to exist by then.
+        sessions.newSession(config: config)
+        controller.showWindow(nil)
+        return controller
+    }
+
+    /// File > New Window, and the Dock icon's menu. With a surface focused the
+    /// ghostty core claims ⌘N first (its own macOS default,
+    /// `super+n=new_window`) and the action comes back through
+    /// `GhosttyBridge`; this is the same key from the menu bar, for when focus
+    /// is in the sidebar. Both inherit the current session's directory.
+    @objc func newWindow(_ sender: Any?) {
+        Self.logger.info("newWindow requested (menu)")
+        openWindow(config: sessions.selected.flatMap {
+            GhosttyBridge.inheritedConfig(from: $0.view, context: GHOSTTY_SURFACE_CONTEXT_WINDOW)
+        })
+    }
+
+    /// The window a surface lives in. `GhosttyBridge` asks this of every
+    /// notification libghostty posts: they are app-wide, and the surface in
+    /// the payload is the only thing saying which window they belong to.
+    func window(owning view: Ghostty.SurfaceView) -> MainWindowController? {
+        windows.first { $0.sessions.session(for: view) != nil }
+    }
+
+    /// The Dock badge counts every window's sessions. It lives here rather than
+    /// in a window controller (where it started) because the tile belongs to
+    /// the app: with two windows open, a badge set from one of them would keep
+    /// overwriting the other's count.
+    private func updateDockBadge() {
+        let count = windows.reduce(0) { $0 + $1.sessions.attentionCount }
+        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    }
+
+    /// Right-clicking the Dock icon. AppKit fills in the window list and Quit;
+    /// New Window is ours, and is the one way into a new window without
+    /// bringing Gutter forward first.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "New Window", action: #selector(newWindow(_:)),
+                     keyEquivalent: "").target = self
+        return menu
+    }
+
+    /// Clicking the Dock icon of a running Gutter. Closing the last main window
+    /// quits the app, so this only fires while something else is holding it
+    /// open - the changes or shortcuts window - and it is the way back to a
+    /// terminal from there. Returning true leaves AppKit's own unminimize
+    /// behavior alone for the ordinary case.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if windows.isEmpty { openWindow() }
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -116,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         let sheet = NewRequestSheet(launchers: launchers,
                                     folders: requestFolders(current: directory, launchers: launchers))
         requestSheet = sheet
-        sheet.present(in: windowController.window) { [weak self] request in
+        sheet.present(in: front?.window) { [weak self] request in
             self?.requestSheet = nil
             guard let request else { return }
             self?.launchRequest(command: request.command,
@@ -168,7 +269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     // cmd-w is a menu key equivalent, so it fires whichever window is key -
     // including the diff window, which would otherwise have closed a terminal
     // pane behind the user's back. Close the key window instead and hand focus
-    // back to the main one; only the main window closes anything of a session's.
+    // back to the front main window; only a main window closes a pane. A main
+    // window that isn't the front one can't be key, so the test is "is the key
+    // window one of ours at all".
     //
     // cmd-w closes one pane and alt-cmd-w the whole session, matching ghostty,
     // where they are close_surface and close_tab. Both go through the core so
@@ -176,9 +279,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     // as ghosttyCloseSurface, and closing a session's last pane is what removes
     // the sidebar row.
     @objc func closePane(_ sender: Any?) {
-        if let key = NSApp.keyWindow, key !== windowController.window {
+        if let key = NSApp.keyWindow, !(key.windowController is MainWindowController) {
             key.performClose(sender)
-            windowController.window?.makeKeyAndOrderFront(nil)
+            front?.window?.makeKeyAndOrderFront(nil)
             return
         }
         guard let surface = sessions.selected?.view.surface else { return }
@@ -190,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     }
 
     @objc func showGitDiff(_ sender: Any?) {
-        windowController.showGitDiff(sender)
+        front?.showGitDiff(sender)
     }
 
     private var shortcutsWindow: ShortcutsWindowController?
@@ -304,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     }
 
     @objc func renameTab(_ sender: Any?) {
-        windowController.beginRenameSelectedTab()
+        front?.beginRenameSelectedTab()
     }
 
     @objc func selectTab(_ sender: Any?) {
@@ -323,8 +426,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     /// Walk the sessions that want the user - the same dots the sidebar shows
     /// and the Dock badge counts. Selecting one clears its dot, so repeating
     /// this empties the queue.
+    ///
+    /// The badge counts every window, so the walk has to cross windows too, or
+    /// it would stall on a count it can't reach. The front window is emptied
+    /// first, then the next window holding a dot is brought forward.
     @objc func nextAttentionTab(_ sender: Any?) {
-        sessions.selectNextNeedingAttention()
+        if let next = front?.sessions.nextNeedingAttention {
+            front?.sessions.selectForAttention(next)
+            return
+        }
+        guard let (window, session) = otherWindowNeedingAttention() else { return }
+        window.window?.makeKeyAndOrderFront(nil)
+        window.sessions.selectForAttention(session)
+    }
+
+    /// The next window with a dot in it, searched from the front backwards -
+    /// `windows` is in focus order, so that is most-recently-used first.
+    private func otherWindowNeedingAttention() -> (MainWindowController, Session)? {
+        for window in windows.reversed() where window !== front {
+            if let session = window.sessions.sessions.first(where: \.needsAttention) {
+                return (window, session)
+            }
+        }
+        return nil
     }
 
     /// Only one item is ever disabled: jumping to a session that wants you,
@@ -333,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     /// the rest of the menu is unchanged by returning true.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard item.action == #selector(nextAttentionTab(_:)) else { return true }
-        return sessions.nextNeedingAttention != nil
+        return front?.sessions.nextNeedingAttention != nil || otherWindowNeedingAttention() != nil
     }
 
     // MARK: Find actions

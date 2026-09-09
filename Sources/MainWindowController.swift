@@ -1,9 +1,14 @@
 import AppKit
 import GhosttyKit
 
-/// Owns the main window: frame sizing, the split shell, the toolbar, and
+/// Owns one main window: frame sizing, the split shell, the toolbar, and
 /// fullscreen chrome. Every piece of "window" logic lives here; AppDelegate
-/// only creates this and forwards actions to it.
+/// owns the list of them and forwards actions to whichever is in front.
+///
+/// There can be several. Each one has its own `SessionManager`, so a window is
+/// a whole independent sidebar of sessions; the three closures below are how
+/// AppDelegate keeps its list, the Dock badge and the front-window order in
+/// step without this class knowing about the others.
 ///
 /// It subclasses `BaseTerminalController` (Gutter's shim, `Shims.swift`) because
 /// ghostty's core refuses to perform `goto_split`, `resize_split` and
@@ -17,8 +22,16 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
     static let sidebarWidth: CGFloat = 330
 
     private let splitVC: MainSplitViewController
-    private let sessions: SessionManager
+    let sessions: SessionManager
     private var diffWindow: GitDiffWindowController?
+
+    /// Something in this window's sessions changed - AppDelegate re-counts the
+    /// Dock badge, which is app-wide and so can't be set from here.
+    var onSessionsChanged: (() -> Void)?
+    /// This window became key: it is the front one now.
+    var onBecomeKey: ((MainWindowController) -> Void)?
+    /// This window is going away; drop it from the list.
+    var onClose: ((MainWindowController) -> Void)?
 
     init(sessions: SessionManager, ghostty: Ghostty.App) {
         let split = MainSplitViewController(sessions: sessions, ghostty: ghostty)
@@ -33,6 +46,12 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
 
         super.init(window: window)
 
+        // Frames are ours to place (`cascade(from:)`), not AppKit's: without
+        // this it cascades any window that has no frame autosave name, which
+        // is every window after the first, on top of the offset we just gave
+        // it.
+        shouldCascadeWindows = false
+
         window.delegate = self
         window.toolbar = makeToolbar()
         window.toolbarStyle = .unified
@@ -46,14 +65,22 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
                              height: min(Self.defaultContentSize.height, maxContent.height)))
             window.setFrame(window.frameRect(forContentRect: content), display: false)
         }
+        // Only one window at a time can hold an autosave name - AppKit hands
+        // it to the first claimant and refuses the rest, which is exactly the
+        // test for "am I the first window". The others open at the default
+        // size and are cascaded and sized by AppDelegate (`cascade(from:)`),
+        // rather than remembering a frame and a sidebar width that would fight
+        // with the first window's over the same defaults key.
         let hasSavedFrame = UserDefaults.standard.object(forKey: "NSWindow Frame Gutter Main Window") != nil
-        window.setFrameAutosaveName("Gutter Main Window")
-        if !hasSavedFrame {
+        let isFirstWindow = window.setFrameAutosaveName("Gutter Main Window")
+        if isFirstWindow, !hasSavedFrame {
             window.center()
         }
         let hasSavedSplit = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames Gutter Main Split") != nil
-        split.splitView.autosaveName = "Gutter Main Split"
-        if !hasSavedSplit {
+        if isFirstWindow {
+            split.splitView.autosaveName = "Gutter Main Split"
+        }
+        if !isFirstWindow || !hasSavedSplit {
             split.setSidebarWidth(Self.sidebarWidth)
         }
 
@@ -62,7 +89,7 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
         sessions.onListChanged = { [weak self] in
             guard let self else { return }
             self.splitVC.sidebarReload()
-            self.updateDockBadge()
+            self.onSessionsChanged?()
             self.syncSplitState()
         }
         sessions.onSelectionChanged = { [weak self] session in
@@ -79,9 +106,10 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
             self.splitVC.refresh(session)
             self.syncSplitState()
         }
-        // Last tab gone: close the window. applicationShouldTerminateAfter-
-        // LastWindowClosed then quits the app. close(), not performClose():
-        // the latter consults the delegate and can be vetoed.
+        // Last tab gone: close this window. With no window left,
+        // applicationShouldTerminateAfterLastWindowClosed then quits the app;
+        // with another one open, the app simply carries on there. close(), not
+        // performClose(): the latter consults the delegate and can be vetoed.
         sessions.onEmpty = { [weak self] in
             self?.window?.close()
         }
@@ -109,20 +137,20 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
         beginRenameSelectedTab()
     }
 
-    /// The sidebar dot only reaches you while you are looking at Gutter, which
-    /// is the opposite of what the app is for: start several agents, go away,
-    /// come back when one wants you. The Dock badge is that same state -
-    /// `Session.needsAttention`, counted - somewhere you see without switching
-    /// apps. No bounce: with several agents a bounce per hand-off is constant
-    /// motion, and the badge is already there on the next glance.
-    ///
-    /// The tile belongs to NSApp, but this lives here because this is where
-    /// every session -> UI reaction lives; `SessionManager` is the model and
-    /// holds no AppKit policy.
-    private func updateDockBadge() {
-        let count = sessions.attentionCount
-        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    /// Open beside `other` instead of on top of it. Only the first window
+    /// restores a remembered frame, so every one after it would otherwise
+    /// arrive at the same default size in the same place. The sidebar width
+    /// comes across too, so a new window looks like the one it came from.
+    func cascade(from other: MainWindowController) {
+        guard let window, let previous = other.window else { return }
+        window.setFrame(previous.frame, display: false)
+        window.cascadeTopLeft(from: NSPoint(x: previous.frame.minX, y: previous.frame.maxY))
+        // Zero while the sidebar is collapsed - inheriting that would open a
+        // window with no sidebar and no obvious way back to one.
+        if other.sidebarWidth > 0 { splitVC.setSidebarWidth(other.sidebarWidth) }
     }
+
+    var sidebarWidth: CGFloat { splitVC.sidebarWidth }
 
     func beginRenameSelectedTab() {
         splitVC.beginRenameSelectedTab()
@@ -190,12 +218,23 @@ extension MainWindowController {
     func windowDidChangeOcclusionState(_ notification: Notification) {
         sessions.setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
+
+    /// Closing a window closes everything in it: AppDelegate drops the last
+    /// reference to this controller, which releases the sessions, their panes
+    /// and their surfaces. There is no confirmation - the same as it has always
+    /// been for the last window, which quit the app.
+    func windowWillClose(_ notification: Notification) {
+        onClose?(self)
+    }
 }
 
 // Fullscreen chrome: the top bar auto-hides for the duration of native
 // fullscreen and slides back when the pointer reaches the top edge.
 extension MainWindowController {
     func windowDidBecomeKey(_ notification: Notification) {
+        // This is the front window now: the menu bar acts on its sessions.
+        onBecomeKey?(self)
+
         // A key window with no view holding focus (fresh launch, focus lost
         // during activation) would eat keystrokes: menu key equivalents never
         // fire without a key window, and ghostty bindings need the surface

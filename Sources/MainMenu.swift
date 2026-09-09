@@ -27,6 +27,13 @@ enum MainMenu {
 
         let fileItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
+        // A whole second Gutter: its own sidebar, its own sessions. The
+        // ghostty core binds ⌘N itself (`super+n=new_window`, a macOS default)
+        // and claims the key whenever a surface has focus, so this item is the
+        // menu-bar half of the same action - the one that fires when focus is
+        // in the sidebar. Same two-path shape as ⌘T; see GhosttyBridge.
+        fileMenu.addItem(withTitle: "New Window",
+                         action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n").target = target
         fileMenu.addItem(withTitle: "New Tab",
                          action: #selector(AppDelegate.newTab(_:)), keyEquivalent: "t").target = target
         let rename = fileMenu.addItem(withTitle: "Rename Tab...",
@@ -46,6 +53,12 @@ enum MainMenu {
                                             action: #selector(AppDelegate.closeSession(_:)), keyEquivalent: "w")
         closeSession.keyEquivalentModifierMask = [.command, .option]
         closeSession.target = target
+        // No target: performClose rides the responder chain to the key window,
+        // so this closes whichever window is in front - the same ⇧⌘W the
+        // ghostty core binds to close_window.
+        let closeWindow = fileMenu.addItem(withTitle: "Close Window",
+                                           action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        closeWindow.keyEquivalentModifierMask = [.command, .shift]
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
