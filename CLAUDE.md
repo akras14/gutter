@@ -1,7 +1,8 @@
 # Gutter
 
-A native macOS terminal app: one window, a sidebar of sessions, and the selected
-session's tree of terminal panes. It embeds libghostty v1.3.1 as a static library and
+A native macOS terminal app: a window is a sidebar of sessions plus the selected
+session's tree of terminal panes, and `cmd-n` opens another window with its own
+sessions. It embeds libghostty v1.3.1 as a static library and
 reuses ghostty's own Swift wrapper. `README.md` has the architecture diagram and the full build notes;
 `DESIGN.md` has the design decisions and what was deliberately left out.
 `competitors/` holds research on adjacent tools: what they do, what was verified

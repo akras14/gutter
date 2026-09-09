@@ -12,6 +12,11 @@ final class ShortcutsWindowController: NSWindowController {
     private typealias Shortcut = (keys: String, action: String)
 
     private static let sections: [(String, [Shortcut])] = [
+        ("Windows", [
+            ("⌘N", "New window (its own sidebar and sessions)"),
+            ("⇧⌘W", "Close window"),
+            ("⌥⇧⌘W", "Close all windows"),
+        ]),
         ("Tabs", [
             ("⌘T", "New tab"),
             ("⇧⌘T", "New request (runs a tool in a new tab)"),

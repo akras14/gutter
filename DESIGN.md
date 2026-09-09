@@ -42,8 +42,9 @@ still pass, so this is the only reminder.
 ### Not a product
 
 No session restore, no test suite. For a full-featured terminal, use Ghostty or
-iTerm2. Gutter is one window, a sidebar of sessions, and one live pane tree,
-plus the few things that serve running several coding agents side by side.
+iTerm2. Gutter is a window, a sidebar of sessions, and one live pane tree per
+window, plus the few things that serve running several coding agents side by
+side.
 
 ### Splits: declined, then reversed
 
@@ -66,6 +67,74 @@ smaller: see "The terminal area is ghostty's, not ours" below.
 What holds from the original decision: a split lives **inside** a sidebar row.
 One row is one session is a tree of panes. Panes are not sidebar rows, there is
 no drag-a-pane-onto-a-pane, and split layout is not persisted across launches.
+
+### Windows are whole copies of the app, not views of one
+
+`⌘N` opens another window. It has its own sidebar, its own sessions, its own
+changes window; the only thing two windows share is libghostty itself - one
+`Ghostty.App`, one config, one process. A window is a `SessionManager`, and
+nothing below the window knows there are others.
+
+The sidebar scrolls, so this was never about how many sessions fit. It is about
+screens and spaces: one window cannot be on two monitors, and a window is the
+unit macOS lets you put on a second desktop, fullscreen on its own, or beside
+an editor. Sharing one session list between two windows was considered and
+turned down for the same reason it isn't tabs-of-tabs - two views of one list
+means every selection, close and rename has to decide which view it happened
+in, and the answer would be "the front one" every time, which is what separate
+lists give for free.
+
+Three things follow from one-`SessionManager`-per-window, and they are the whole
+of the change:
+
+- **Every menu action acts on the front window.** `AppDelegate.front` is the
+  last window to become key, and `AppDelegate.sessions` is its list - which is
+  why the menu actions read exactly as they did when there was only one.
+- **`GhosttyBridge` routes by surface.** libghostty posts to the default
+  NotificationCenter, so its actions are app-wide: one observer sees every
+  window's ⌘T, ⌘D and ⌘W. The surface in the payload is the only thing that
+  says where an action belongs, so every observer looks up the window owning it
+  and applies the action there. An action with no surface - libghostty's
+  app-target variants - falls to the front window.
+- **The Dock badge moved to `AppDelegate`.** It used to be set from
+  `MainWindowController`, on the argument that every session -> UI reaction
+  lives there. With two windows that stops working: the tile belongs to the
+  app, and two windows would each keep overwriting the other's count. It now
+  sums every window, and View > Next Session Needing Attention walks across
+  windows too - a badge that counts what the walk can't reach would strand the
+  user on a number.
+
+"Can the user see this pane" gained a third term at the same time, in
+`SessionManager.isVisible`: the pane's window has to be on screen. With one
+window "the app is active" was close enough - it is what marks a hand-off as
+read. With two, a covered window's selected session would mark itself read on
+every activation, and a bell in it would never light a dot at all.
+
+Two smaller decisions:
+
+- **Only the first window remembers its frame.** macOS gives a frame autosave
+  name to one window and refuses it to the rest, which is also the cleanest test
+  for "am I the first". The others open at the size of the window they were
+  opened from, cascaded down-right, and copy its sidebar width. There is
+  nothing to key a per-window frame on: the windows are interchangeable, and a
+  saved frame per index would move whichever window happened to be second.
+- **Closing a window doesn't ask.** It takes its sessions with it, agents and
+  all. That is the behavior the last window has always had, when closing it
+  quit the app; ⌘W (one pane) and ⌥⌘W (one session) still go through the core
+  and still confirm when a pane has something running.
+
+### The Dock is a way in, not just a way back
+
+Two entry points beyond the menu bar, because the app is for leaving running
+and coming back to:
+
+- **The Dock icon's menu carries New Window** (`applicationDockMenu`). AppKit
+  fills in the window list, Options and Quit; this is the one route into a new
+  window without bringing Gutter forward first.
+- **Clicking the Dock icon with no window open re-opens one**
+  (`applicationShouldHandleReopen`). Closing the last main window quits Gutter,
+  so this only fires while the changes or shortcuts window is holding the app
+  open - and without it, that state has no way back to a terminal.
 
 ### The terminal area is ghostty's, not ours
 
@@ -283,9 +352,11 @@ Two things were considered and turned down:
   disables itself: `AppDelegate.validateMenuItem` greys it when nothing is
   waiting, which makes the menu a second readout of the same count.
 
-The badge is set from `MainWindowController`, not `AppDelegate`, even though
-the tile belongs to `NSApp`: that controller owns every session -> UI reaction
-already, and `SessionManager` is the model and holds no AppKit policy.
+The badge is set from `AppDelegate`, summed over every window. It started in
+`MainWindowController`, on the argument that the controller owns every session
+-> UI reaction already; a second window ended that, since the tile belongs to
+`NSApp` and two windows would overwrite each other's count. `SessionManager` is
+still the model and still holds no AppKit policy - it only counts.
 
 ## The diff view
 
