@@ -522,6 +522,23 @@ the header says which files those are: `5 files (2 not yet committed)`. It
 costs a second status call, taken only in branch mode and only when there is
 something to count.
 
+### The header's controls don't move
+
+The header first packed everything from the left: summary, toggle, picker,
+chevrons, Refresh. The summary changes length on every mode switch, file
+count and refresh (a reload even reset it to the bare path while loading), so
+the controls after it slid sideways all the time - including the toggle and
+the chevrons, the ones clicked repeatedly.
+
+Now the controls hang off the trailing edge and the summary takes what is
+left, truncating from the head. Anything that changes width sits to the left
+of the fixed controls: the base picker, which appears with branch mode and
+sizes to its ref, is the leftmost control, so clicking Branch doesn't move the
+toggle out from under the pointer. Refresh is sized for its stale title
+("Refresh •") from the start. The summary stays up while a reload of the same
+directory runs, and the pane captions truncate rather than letting a long ref
+name widen the panes and push the file list's divider.
+
 ### It says when it has gone stale, and doesn't reload itself
 
 The window is open while an agent is writing, so what it shows goes out of date
