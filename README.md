@@ -256,7 +256,13 @@ panel and this table but not in the menu bar.
 | `cmd-shift-/` | Keyboard shortcuts |
 
 In the changes window: `cmd-]` / `cmd-[` next and previous change, `cmd-r`
-refresh, `cmd-w` close. Those first two are the same keys that move between
+refresh, `cmd-w` close. `cmd-f` opens a find bar over the file on screen: it
+searches one pane - the one you last clicked into, or the one picked in the
+bar's toggle, marked with an accent border - highlights every match, and marks
+them on the change map.
+`cmd-g` / `return` step to the next match, `cmd-shift-g` / `shift-return` back,
+`cmd-e` searches for the selection, and `esc` closes the bar. The query stays
+while you move between files. `cmd-]` and `cmd-[` are the same keys that move between
 panes in the main window; they don't collide, because in the changes window
 they are that window's own button key equivalents, not menu items or core
 keybinds. The Refresh button takes a dot when the repo changes
