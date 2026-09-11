@@ -251,10 +251,32 @@ extension MainWindowController {
         sessions.setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
 
+    /// ⇧⌘W, the close button and the core's `close_window` all arrive here
+    /// through performClose, and ask first: the window takes every session in
+    /// it down. The paths that must not ask use close(), which skips this -
+    /// the last session ending (`onEmpty`), and ⌥⇧⌘W, which has already asked
+    /// once for all windows (`AppDelegate.closeAllWindows`).
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // A sheet is up already (Rename Window, New Request); a second one
+        // can't attach, and the user is mid-way through something.
+        guard sender.attachedSheet == nil else { return false }
+        let count = sessions.sessions.count
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Close this window?"
+        alert.informativeText = "\(count == 1 ? "Its session" : "Its \(AppDelegate.count(count, "session"))") will close, along with anything running in \(count == 1 ? "it" : "them")."
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: sender) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            sender.close()
+        }
+        return false
+    }
+
     /// Closing a window closes everything in it: AppDelegate drops the last
     /// reference to this controller, which releases the sessions, their panes
-    /// and their surfaces. There is no confirmation - the same as it has always
-    /// been for the last window, which quit the app.
+    /// and their surfaces.
     func windowWillClose(_ notification: Notification) {
         onClose?(self)
     }

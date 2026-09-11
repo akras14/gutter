@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     // exist for the casts to compile.
     let undoManager: UndoManager? = nil
     func checkForUpdates(_ sender: Any?) {}
-    func closeAllWindows(_ sender: Any?) { NSApp.windows.forEach { $0.performClose(nil) } }
     func toggleVisibility(_ sender: Any?) {}
     func syncFloatOnTopMenu(_ window: NSWindow) {}
     func setSecureInput(_ mode: Ghostty.SetSecureInput) {}
@@ -177,6 +176,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    // MARK: Confirming exits
+    //
+    // Everything that takes sessions down with it asks first: ⌘Q, Quit from
+    // the Dock, the core's `quit` keybind (all of which end in
+    // NSApp.terminate), ⇧⌘W and the close button (MainWindowController's
+    // windowShouldClose), and ⌥⇧⌘W below. ⌘W and ⌥⌘W don't: they go through
+    // the core, which asks only when a pane has something running.
+
+    /// Main windows still on screen or in the Dock. A window that has just
+    /// closed is neither, even before `onClose` drops it from `windows` a tick
+    /// later - which is what keeps the quit that follows the last window
+    /// closing (or the last pane, via `onEmpty`) from asking a second time.
+    private var openWindows: [MainWindowController] {
+        windows.filter { $0.window.map { $0.isVisible || $0.isMiniaturized } ?? false }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let open = openWindows
+        guard !open.isEmpty, !Self.isSystemQuit else { return .terminateNow }
+        let sessionCount = open.reduce(0) { $0 + $1.sessions.sessions.count }
+        // Quit from the Dock arrives with Gutter in the background; the alert
+        // would open behind whatever app is in front.
+        NSApp.activate(ignoringOtherApps: true)
+        let confirmed = Self.confirm(
+            title: "Quit Gutter?",
+            message: "\(Self.count(sessionCount, "session")) in \(Self.count(open.count, "window")) will close, along with anything running in them.",
+            button: "Quit")
+        return confirmed ? .terminateNow : .terminateCancel
+    }
+
+    /// ⌥⇧⌘W, the core's `close_all_windows`, which the vendored
+    /// `Ghostty.App` calls here. One question for all of them, not a sheet per
+    /// window: main windows close with close(), which skips windowShouldClose.
+    func closeAllWindows(_ sender: Any?) {
+        let open = openWindows
+        if !open.isEmpty {
+            let sessionCount = open.reduce(0) { $0 + $1.sessions.sessions.count }
+            guard Self.confirm(
+                title: "Close all windows?",
+                message: "\(Self.count(sessionCount, "session")) in \(Self.count(open.count, "window")) will close, along with anything running in them.",
+                button: "Close All") else { return }
+        }
+        for window in NSApp.windows {
+            if window.windowController is MainWindowController { window.close() } else { window.performClose(nil) }
+        }
+    }
+
+    /// Logout, restart and shutdown quit through the same terminate call. They
+    /// must not stop on a prompt: macOS would cancel the logout and name
+    /// Gutter as the app that blocked it.
+    private static var isSystemQuit: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == kAEQuitApplication,
+              let reason = event.attributeDescriptor(forKeyword: kAEQuitReason)?.enumCodeValue
+        else { return false }
+        return [kAELogOut, kAEReallyLogOut, kAEShowRestartDialog, kAEShowShutdownDialog,
+                kAERestart, kAEShutDown].contains(reason)
+    }
+
+    private static func confirm(title: String, message: String, button: String) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
