@@ -6,7 +6,9 @@ A small native macOS terminal app with a vertical tab sidebar, embedding
 ![Gutter: sidebar of sessions on the left, live terminal surface on the right](assets/screenshot.jpg)
 
 A window is a collapsible sidebar of sessions and the selected session's panes;
-`⌘N` opens another, with its own sessions. Every pane is a real libghostty surface -
+`⌘N` opens another, with its own sessions. **File > Rename Window...** names
+one - the name shows in the title bar, the Window menu and the Dock icon's
+window list, which is what makes one window per project navigable. Every pane is a real libghostty surface -
 Metal rendering, PTY handling, VT emulation, input/IME and config loading all come
 from ghostty's core and its own Swift wrapper. The app itself is the window shell,
 sidebar and session manager in AppKit, over a pane tree that is ghostty's own SwiftUI. No Xcode project: everything

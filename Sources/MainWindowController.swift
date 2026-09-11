@@ -20,6 +20,8 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
     /// Default content size, clamped to the visible screen at launch.
     static let defaultContentSize = NSSize(width: 1750, height: 1120)
     static let sidebarWidth: CGFloat = 330
+    /// What the title bar reads until the window is given a name.
+    static let defaultTitle = "Gutter"
 
     private let splitVC: MainSplitViewController
     let sessions: SessionManager
@@ -42,7 +44,7 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
             contentRect: NSRect(origin: .zero, size: Self.defaultContentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = "Gutter"
+        window.title = Self.defaultTitle
 
         super.init(window: window)
 
@@ -154,6 +156,36 @@ final class MainWindowController: BaseTerminalController, NSWindowDelegate, NSTo
 
     func beginRenameSelectedTab() {
         splitVC.beginRenameSelectedTab()
+    }
+
+    /// Name this window. A sheet rather than an in-place edit like the sidebar
+    /// row: there is no view to swap for a field - the title bar is AppKit's -
+    /// and this is a once-per-window action, not a per-tab one.
+    ///
+    /// The name shows in three places, and the last two are the point of it:
+    /// the title bar, the Window menu, and the Dock icon's window list, both
+    /// of which name windows by title (`NSApp.windowsMenu`, MainMenu.swift).
+    /// One window per project only navigates if the lists say which is which.
+    func beginRenameWindow() {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename Window"
+        alert.informativeText = "Shown in the title bar, the Window menu and the Dock icon's window list."
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        // Seeded with the custom name only, so an unnamed window opens an empty
+        // field and "Gutter" is the placeholder - clearing the field visibly
+        // means "go back to that". Same rule as the sidebar rename.
+        field.stringValue = window.title == Self.defaultTitle ? "" : window.title
+        field.placeholderString = Self.defaultTitle
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            window.title = name.isEmpty ? Self.defaultTitle : name
+        }
     }
 
     // MARK: Toolbar
