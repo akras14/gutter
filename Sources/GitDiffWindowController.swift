@@ -13,7 +13,7 @@ import AppKit
 /// AppKit - a table, two text views, and the scroll sync that keeps them
 /// locked together.
 final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate,
-                                     NSWindowDelegate {
+                                     NSWindowDelegate, NSSearchFieldDelegate {
     private let pathLabel = NSTextField(labelWithString: "")
     private let fileTable = NSTableView()
     private let leftView = NSTextView()
@@ -37,6 +37,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     /// uncommitted mode but the fork point in branch mode, and a caption stuck
     /// on "HEAD" is exactly the two-dot misreading the header works to avoid.
     private lazy var leftPaneLabel = paneTitle("HEAD")
+    private lazy var rightPaneLabel = paneTitle("Working tree")
     /// Which ref branch mode compares against. Only shown in branch mode -
     /// there is nothing to pick when the base is HEAD.
     private let baseRefPopup = NSPopUpButton()
@@ -72,6 +73,39 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private var rowCount = 0
     private var blocks: [DiffMapView.Block] = []
 
+    // Find. One bar per changes window, searching one pane at a time - the
+    // way a diff question is usually asked: "where is this in the old file?"
+    private let findBar = NSStackView()
+    private let findField = NSSearchField()
+    private let findCountLabel = NSTextField(labelWithString: "")
+    /// The rows on screen. A find searches these rather than the rendered
+    /// panes, whose lines also carry line numbers and padding a needle must not
+    /// match - searching "12" would otherwise light every twelfth line number.
+    private var shownRows: [GitDiff.Row] = []
+    /// Where each row's text starts in each pane's text storage, in UTF-16
+    /// units, so a match in a row's text maps back to a range on screen.
+    private var leftBodyStarts: [Int] = []
+    private var rightBodyStarts: [Int] = []
+    private struct FindMatch {
+        let row: Int
+        /// Within the row's text on the searched side, not the pane's.
+        let range: NSRange
+    }
+    /// The pane a find searches: the one last clicked into, or picked in the
+    /// bar. Starts on the right - the worktree is the file being edited.
+    private var findSide: Side = .right
+    private let findSideToggle = NSSegmentedControl()
+    /// Follows focus into the panes, so clicking one is how it becomes the
+    /// searched one.
+    private var responderObservation: NSKeyValueObservation?
+    private var matches: [FindMatch] = []
+    /// Nil until the user steps to one: opening a file with a query live
+    /// lights the matches but leaves the reader at the top.
+    private var currentMatch: Int?
+    /// The query `matches` was built from, so an action that didn't change the
+    /// text (Return, a repeat of the same keystroke) doesn't reset the stepping.
+    private var searchedNeedle = ""
+
     // Meld's palette, roughly: red for what HEAD had, green for what the
     // worktree has, blue for a line that exists on both sides but changed.
     // Low alpha so the text stays readable in either appearance.
@@ -85,6 +119,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private static let mapRemoved = NSColor.systemRed.withAlphaComponent(0.85)
     private static let mapAdded = NSColor.systemGreen.withAlphaComponent(0.85)
     private static let mapChanged = NSColor.systemBlue.withAlphaComponent(0.85)
+    // Find highlights sit over the diff colors, so they are yellow and orange:
+    // the two hues the diff palette doesn't use.
+    private static let matchBG = NSColor.systemYellow.withAlphaComponent(0.40)
+    private static let currentMatchBG = NSColor.systemOrange.withAlphaComponent(0.70)
 
     convenience init() {
         let window = NSWindow(
@@ -166,19 +204,36 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         split.splitView.autosaveName = "Gutter Git Diff Split"
         splitVC = split
 
+        makeFindBar()
+        // A vertical stack so the find bar takes no room while hidden: a stack
+        // detaches hidden views, where a plain constraint would keep its band.
+        let top = NSStackView(views: [header, findBar])
+        top.orientation = .vertical
+        top.spacing = 0
+        top.translatesAutoresizingMaskIntoConstraints = false
+        // NSStackView's own hugging, not setContentHuggingPriority: a stack
+        // hugs its views at 250 by default, so the solver handed it all the
+        // slack and the panes sank to the bottom of the window - the same
+        // failure the header's height pin above exists to prevent.
+        top.setHuggingPriority(.required, for: .vertical)
+
         let content = NSView()
         let container = HostingViewController(content)
         container.addChild(split)
         let body = split.view
         body.translatesAutoresizingMaskIntoConstraints = false
         body.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
-        content.addSubview(header)
+        content.addSubview(top)
         content.addSubview(body)
         NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            header.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            header.topAnchor.constraint(equalTo: content.topAnchor),
-            body.topAnchor.constraint(equalTo: header.bottomAnchor),
+            top.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            top.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            top.topAnchor.constraint(equalTo: content.topAnchor),
+            header.leadingAnchor.constraint(equalTo: top.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: top.trailingAnchor),
+            findBar.leadingAnchor.constraint(equalTo: top.leadingAnchor),
+            findBar.trailingAnchor.constraint(equalTo: top.trailingAnchor),
+            body.topAnchor.constraint(equalTo: top.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             body.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             body.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -232,7 +287,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         rightScroll = makePane(rightView)
 
         let left = stackedPane(title: leftPaneLabel, scroll: leftScroll)
-        let right = stackedPane(title: paneTitle("Working tree"), scroll: rightScroll)
+        let right = stackedPane(title: rightPaneLabel, scroll: rightScroll)
 
         // The map strip sits where the divider would be: it is the divider,
         // plus every change in the file at a glance. Its top and bottom track
@@ -315,6 +370,8 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
         let scroll = NSScrollView()
         scroll.documentView = textView
+        // Layer-backed for the border that marks the pane a find searches.
+        scroll.wantsLayer = true
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
@@ -733,6 +790,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         blocks = []
         mapView.blocks = []
         mapView.totalRows = 0
+        shownRows = []
+        leftBodyStarts = []
+        rightBodyStarts = []
+        runFind(jump: false)
         scrollPanesToTop()
     }
 
@@ -743,20 +804,29 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let widest = rows.reduce(0) { max($0, max($1.left?.count ?? 0, $1.right?.count ?? 0)) }
         let padTo = min(max(widest, 80), 500)
 
-        leftView.textStorage?.setAttributedString(render(rows, side: .left, padTo: padTo))
-        rightView.textStorage?.setAttributedString(render(rows, side: .right, padTo: padTo))
+        leftView.textStorage?.setAttributedString(
+            render(rows, side: .left, padTo: padTo, bodyStarts: &leftBodyStarts))
+        rightView.textStorage?.setAttributedString(
+            render(rows, side: .right, padTo: padTo, bodyStarts: &rightBodyStarts))
 
         rowCount = rows.count
         blocks = Self.blocks(in: rows)
         mapView.totalRows = rows.count
         mapView.blocks = blocks
+        shownRows = rows
+        // A query stays live across files and refreshes: the question is
+        // usually "where else is this used", and the next file is where else.
+        runFind(jump: false)
         scrollPanesToTop()
     }
 
     private enum Side { case left, right }
 
-    private func render(_ rows: [GitDiff.Row], side: Side, padTo: Int) -> NSAttributedString {
+    private func render(_ rows: [GitDiff.Row], side: Side, padTo: Int,
+                        bodyStarts: inout [Int]) -> NSAttributedString {
         let out = NSMutableAttributedString()
+        bodyStarts = []
+        bodyStarts.reserveCapacity(rows.count)
         for row in rows {
             let text = side == .left ? row.left : row.right
             let number = side == .left ? row.leftNumber : row.rightNumber
@@ -799,6 +869,9 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             case (.removed, .right), (.added, .left):
                 line.addAttribute(.backgroundColor, value: Self.fillerBG, range: lineRange)
             }
+            // The gutter is not a fixed width - a sixth digit widens it - so
+            // the text's start is recorded rather than assumed.
+            bodyStarts.append(out.length + gutterWidth)
             out.append(line)
         }
         return out
@@ -846,6 +919,289 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             blocks.append(DiffMapView.Block(start: start, end: i - 1, color: color))
         }
         return blocks
+    }
+
+    // MARK: Find
+    //
+    // One bar over both panes, searching whichever pane is active - meld's
+    // shape. Hand-written rather than NSTextFinder, which would give each pane
+    // its own bar and match line numbers and padding along with the text.
+    // The Edit menu's Find items reach this through AppDelegate, which sends
+    // them here while this window is key and to the terminal otherwise.
+
+    private func makeFindBar() {
+        findSideToggle.segmentCount = 2
+        findSideToggle.trackingMode = .selectOne
+        findSideToggle.setImage(NSImage(systemSymbolName: "rectangle.lefthalf.filled",
+                                        accessibilityDescription: "Left pane"), forSegment: 0)
+        findSideToggle.setImage(NSImage(systemSymbolName: "rectangle.righthalf.filled",
+                                        accessibilityDescription: "Right pane"), forSegment: 1)
+        findSideToggle.setToolTip("Search the left pane (or click into it)", forSegment: 0)
+        findSideToggle.setToolTip("Search the right pane (or click into it)", forSegment: 1)
+        findSideToggle.selectedSegment = 1
+        findSideToggle.target = self
+        findSideToggle.action = #selector(findSideToggled(_:))
+        // Focus, not selection changes: the panes' selections also move when
+        // a file loads, which would flip the side behind the user's back.
+        responderObservation = window?.observe(\.firstResponder) { [weak self] window, _ in
+            guard let self else { return }
+            if window.firstResponder === self.leftView {
+                self.setFindSide(.left)
+            } else if window.firstResponder === self.rightView {
+                self.setFindSide(.right)
+            }
+        }
+
+        findField.placeholderString = "Find in this file"
+        findField.sendsSearchStringImmediately = true
+        findField.target = self
+        findField.action = #selector(findQueryChanged(_:))
+        findField.delegate = self
+        findField.widthAnchor.constraint(equalToConstant: 280).isActive = true
+
+        findCountLabel.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        findCountLabel.textColor = .secondaryLabelColor
+
+        // Left and right chevrons, like Safari's find bar - the up/down pair in
+        // the header already means "change", and these step through matches.
+        // No key equivalents: ⌘G and ⇧⌘G are the Edit menu's.
+        let previous = NSButton(image: NSImage(systemSymbolName: "chevron.left",
+                                               accessibilityDescription: "Previous Match")!,
+                                target: self, action: #selector(previousMatchClicked(_:)))
+        previous.toolTip = "Previous Match (⇧⌘G or ⇧↵)"
+        let next = NSButton(image: NSImage(systemSymbolName: "chevron.right",
+                                           accessibilityDescription: "Next Match")!,
+                            target: self, action: #selector(nextMatchClicked(_:)))
+        next.toolTip = "Next Match (⌘G or ↵)"
+        let done = NSButton(title: "Done", target: self, action: #selector(doneClicked(_:)))
+        done.toolTip = "Close the find bar (esc)"
+        for button in [previous, next, done] { button.bezelStyle = .rounded }
+
+        findBar.orientation = .horizontal
+        findBar.spacing = 8
+        findBar.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 6, right: 12)
+        findBar.setViews([findSideToggle, findField, previous, next, findCountLabel], in: .leading)
+        findBar.setViews([done], in: .trailing)
+        findBar.translatesAutoresizingMaskIntoConstraints = false
+        findBar.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        findBar.isHidden = true
+    }
+
+    /// ⌘F: show the bar and put the cursor in it, with the last query selected
+    /// so typing replaces it - the same as every other macOS find field.
+    func beginFind() {
+        let wasHidden = findBar.isHidden
+        findBar.isHidden = false
+        window?.makeFirstResponder(findField)
+        if wasHidden { runFind(jump: false) }
+    }
+
+    /// ⌘G / ⇧⌘G. With the bar closed, a query from before reopens it and
+    /// steps; with no query there is nothing to step through, so it opens the
+    /// bar for one instead.
+    func stepFind(forward: Bool) {
+        guard !findField.stringValue.isEmpty else { return beginFind() }
+        if findBar.isHidden {
+            findBar.isHidden = false
+            runFind(jump: false)
+        }
+        stepMatch(forward: forward)
+    }
+
+    /// ⌘E: search for what is selected in the active pane - selecting text
+    /// focuses the pane, so that is the one it was selected in. Only its first
+    /// line, trimmed: a selection dragged across rows carries line numbers and
+    /// the padding that squares the panes off.
+    func findSelection() {
+        let view = findView
+        guard view.selectedRange().length > 0,
+              let text = view.textStorage?.attributedSubstring(from: view.selectedRange()).string,
+              let line = text.split(whereSeparator: \.isNewline).first
+        else { return }
+        let needle = line.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return }
+        findField.stringValue = needle
+        findBar.isHidden = false
+        runFind(jump: false)
+    }
+
+    private func endFind() {
+        findBar.isHidden = true
+        runFind(jump: false)
+        // Back to the pane that was searched; the other would flip the side.
+        window?.makeFirstResponder(findView)
+    }
+
+    private var findView: NSTextView { findSide == .left ? leftView : rightView }
+
+    @objc private func findSideToggled(_ sender: Any?) {
+        setFindSide(findSideToggle.selectedSegment == 0 ? .left : .right)
+    }
+
+    /// Re-searches on a switch but doesn't jump: the query is the same, only
+    /// the pane changed, so the reader stays where they are.
+    private func setFindSide(_ side: Side) {
+        guard side != findSide else { return }
+        findSide = side
+        runFind(jump: false)
+    }
+
+    /// The searched pane has to be obvious, or "No matches" reads as a bug
+    /// when the string is sitting in the other pane. So while the bar is open
+    /// it says so four ways: the toggle in the bar, an accent border around
+    /// the pane, its caption in the accent color, and the field's placeholder.
+    /// With the bar closed nothing is marked - no find, no active pane.
+    private func updateActivePane() {
+        let finding = !findBar.isHidden
+        findSideToggle.selectedSegment = findSide == .left ? 0 : 1
+        let panes: [(NSScrollView, NSTextField, Side)] = [
+            (leftScroll, leftPaneLabel, .left), (rightScroll, rightPaneLabel, .right),
+        ]
+        for (scroll, caption, side) in panes {
+            let active = finding && side == findSide
+            scroll.layer?.borderWidth = active ? 2 : 0
+            scroll.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            caption.textColor = active ? .controlAccentColor : .secondaryLabelColor
+            caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: active ? .semibold : .medium)
+        }
+        let caption = findSide == .left ? leftPaneLabel.stringValue : rightPaneLabel.stringValue
+        findField.placeholderString = "Find in \(caption)"
+    }
+
+    @objc private func findQueryChanged(_ sender: Any?) {
+        guard findField.stringValue != searchedNeedle else { return }
+        runFind(jump: true)
+    }
+
+    @objc private func nextMatchClicked(_ sender: Any?) { stepMatch(forward: true) }
+    @objc private func previousMatchClicked(_ sender: Any?) { stepMatch(forward: false) }
+    @objc private func doneClicked(_ sender: Any?) { endFind() }
+
+    /// Return steps forward and shift-Return back, as in Safari and VS Code;
+    /// Escape closes the bar. Without this the search field takes Escape to
+    /// clear the query and leaves the bar open.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertLineBreak(_:)):
+            // Return is also the field's end-editing action; a query typed
+            // faster than the action fired is caught up here first.
+            if findField.stringValue != searchedNeedle { runFind(jump: false) }
+            stepMatch(forward: !(NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false))
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            endFind()
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Rebuild `matches` for the current query and file. `jump` is for typing:
+    /// it moves to the first match at or below the top of the panes, so the
+    /// reader's place survives a query that matches what they're looking at.
+    private func runFind(jump: Bool) {
+        let needle = findField.stringValue
+        searchedNeedle = needle
+        matches = []
+        currentMatch = nil
+        if !findBar.isHidden, !needle.isEmpty {
+            for (index, row) in shownRows.enumerated() {
+                // A filler row has no text on this side - the line exists
+                // only in the other pane.
+                guard let text = findSide == .left ? row.left : row.right else { continue }
+                for range in Self.occurrences(of: needle, in: text) {
+                    matches.append(FindMatch(row: index, range: range))
+                }
+            }
+        }
+        // Here rather than at each caller: a load renames the left caption,
+        // and every load ends in a find.
+        updateActivePane()
+        for view in [leftView, rightView] {
+            guard let length = view.textStorage?.length else { continue }
+            view.layoutManager?.removeTemporaryAttribute(
+                .backgroundColor, forCharacterRange: NSRange(location: 0, length: length))
+        }
+        for index in matches.indices { paintMatch(index) }
+        mapView.matchRows = matches.map(\.row)
+        if jump, !matches.isEmpty { stepMatch(forward: true) } else { updateFindCount() }
+    }
+
+    /// Case-insensitive and literal, like VS Code's default. Non-overlapping,
+    /// so "aa" in "aaaa" is two matches, not three.
+    private static func occurrences(of needle: String, in text: String) -> [NSRange] {
+        let haystack = text as NSString
+        var found: [NSRange] = []
+        var from = 0
+        while from < haystack.length {
+            let range = haystack.range(of: needle, options: .caseInsensitive,
+                                       range: NSRange(location: from, length: haystack.length - from))
+            guard range.location != NSNotFound else { break }
+            found.append(range)
+            from = range.location + max(range.length, 1)
+        }
+        return found
+    }
+
+    /// The match's range in the searched pane's text storage.
+    private func paneRange(_ match: FindMatch) -> NSRange {
+        let start = (findSide == .left ? leftBodyStarts : rightBodyStarts)[match.row]
+        return NSRange(location: start + match.range.location, length: match.range.length)
+    }
+
+    /// Temporary attributes, not text-storage ones: they draw over the diff's
+    /// own backgrounds without replacing them, so clearing a find is removing
+    /// them again rather than re-rendering the file.
+    private func paintMatch(_ index: Int) {
+        let color = index == currentMatch ? Self.currentMatchBG : Self.matchBG
+        findView.layoutManager?.addTemporaryAttribute(.backgroundColor, value: color,
+                                                      forCharacterRange: paneRange(matches[index]))
+    }
+
+    private func stepMatch(forward: Bool) {
+        guard !matches.isEmpty else { return updateFindCount() }
+        let target: Int
+        if let current = currentMatch {
+            // Wraps, like the change jumps.
+            target = (current + (forward ? 1 : matches.count - 1)) % matches.count
+        } else {
+            // Nothing stepped to yet: start from where the reader is.
+            let top = topRow
+            target = forward
+                ? matches.firstIndex { $0.row >= top } ?? 0
+                : matches.lastIndex { $0.row < top } ?? matches.count - 1
+        }
+        let previous = currentMatch
+        currentMatch = target
+        if let previous { paintMatch(previous) }
+        paintMatch(target)
+        updateFindCount()
+
+        let match = matches[target]
+        // Only scroll when the row is off screen: typing a query that matches
+        // the line being read shouldn't move it.
+        let visibleRows = Int(leftScroll.contentView.bounds.height / lineHeight)
+        if match.row < topRow || match.row >= topRow + max(1, visibleRows - 1) {
+            scrollPanes(toRow: match.row)
+        }
+        let range = paneRange(match)
+        // The panes don't wrap, so a match far along a long line can be off to
+        // the right; this scrolls sideways, and the scroll sync carries the
+        // other pane along.
+        findView.scrollRangeToVisible(range)
+        findView.showFindIndicator(for: range)
+    }
+
+    private func updateFindCount() {
+        if searchedNeedle.isEmpty || findBar.isHidden {
+            findCountLabel.stringValue = ""
+        } else if matches.isEmpty {
+            findCountLabel.stringValue = "No matches"
+        } else if let currentMatch {
+            findCountLabel.stringValue = "\(currentMatch + 1) of \(matches.count)"
+        } else {
+            findCountLabel.stringValue = matches.count == 1 ? "1 match" : "\(matches.count) matches"
+        }
     }
 
     // MARK: File list
@@ -908,6 +1264,9 @@ final class DiffMapView: NSView {
 
     var blocks: [Block] = [] { didSet { needsDisplay = true } }
     var totalRows = 0 { didSet { needsDisplay = true } }
+    /// Rows holding a find match. This is the "where else in the file" answer
+    /// at a glance, the same way the blocks are for changes.
+    var matchRows: [Int] = [] { didSet { needsDisplay = true } }
     /// The visible span of the file, as a 0...1 fraction. Nil hides the outline.
     var viewport: ClosedRange<CGFloat>? { didSet { needsDisplay = true } }
     /// Where the user clicked, as a 0...1 fraction of the file.
@@ -936,6 +1295,13 @@ final class DiffMapView: NSView {
             let height = max(2, CGFloat(block.end - block.start + 1) * scale)
             block.color.setFill()
             NSRect(x: inset, y: top, width: bounds.width - inset * 2, height: height).fill()
+        }
+
+        // Narrower than a change mark, so a match inside a change leaves the
+        // change's color showing at the edges.
+        NSColor.systemYellow.setFill()
+        for row in matchRows {
+            NSRect(x: inset * 2, y: CGFloat(row) * scale, width: bounds.width - inset * 4, height: 2).fill()
         }
 
         if let viewport {

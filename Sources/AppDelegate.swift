@@ -472,23 +472,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     // between matches (`navigate_search:` is the action that navigates). Using
     // distinct names keeps a stray responder-chain dispatch off that path.
     // Everything else lands on searchState, which raises the find bar.
+    //
+    // The changes window has a find bar of its own, over its two panes. While
+    // it is key these belong to it - otherwise ⌘F there would open the
+    // terminal's find bar in the window behind it.
+
+    private var keyDiffWindow: GitDiffWindowController? {
+        NSApp.keyWindow?.windowController as? GitDiffWindowController
+    }
 
     @objc func findInTerminal(_ sender: Any?) {
+        if let diff = keyDiffWindow { return diff.beginFind() }
         guard let view = sessions.selected?.view else { return }
         GhosttyBridge.perform("start_search", on: view)
     }
 
     @objc func findNextMatch(_ sender: Any?) {
+        if let diff = keyDiffWindow { return diff.stepFind(forward: true) }
         guard let view = sessions.selected?.view else { return }
         GhosttyBridge.perform("navigate_search:next", on: view)
     }
 
     @objc func findPreviousMatch(_ sender: Any?) {
+        if let diff = keyDiffWindow { return diff.stepFind(forward: false) }
         guard let view = sessions.selected?.view else { return }
         GhosttyBridge.perform("navigate_search:previous", on: view)
     }
 
     @objc func useSelectionForFind(_ sender: Any?) {
+        if let diff = keyDiffWindow { return diff.findSelection() }
         guard let view = sessions.selected?.view else { return }
         GhosttyBridge.perform("search_selection", on: view)
     }

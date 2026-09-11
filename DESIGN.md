@@ -400,6 +400,40 @@ long file.
 Don't propose collapsing unchanged regions to make changes easier to find. That
 problem is already solved a different way.
 
+### Find searches one pane, and says which
+
+The changes window has its own find bar (⌘F while it is key), because whole
+files raise the question folded hunks never do: where else in this file is
+that name used? The Edit menu's Find items are the same ones the terminal
+uses; `AppDelegate` sends them to the changes window while it is key.
+
+Four decisions, each against an easier option:
+
+- **One pane at a time, meld's shape.** The first cut searched both panes at
+  once, and was a surprise on first use. A diff question is usually about one
+  side - "where is this in the old file?" - and a line changed on both sides
+  counted twice. The bar searches the pane last clicked into, or the one
+  picked in its toggle; it starts on the worktree.
+- **The active pane is marked four ways while the bar is open:** the toggle,
+  an accent border around the pane, its caption in the accent color, and the
+  field's placeholder ("Find in Working tree"). Without it, "No matches" reads
+  as a bug when the string is sitting in the other pane. With the bar closed
+  nothing is marked.
+- **Hand-written, not `NSTextFinder`.** AppKit's finder would give each pane
+  its own bar, and it searches the rendered text. The panes' lines carry line
+  numbers and trailing padding, so "12" would light up line numbers and a run
+  of spaces would match every short line. This searches the rows instead.
+- **The query stays while you switch files and refresh.** Once you know what
+  to look for, the next file is often where else it is used. Opening a file
+  lights its matches but doesn't scroll. Stepping starts from the top of the
+  panes, so ⌘G still takes you to the first match below where you are.
+
+Matches are marked on the change-map strip in yellow, narrower than a change
+mark, so a match inside a change still shows the change's color. It searches
+one file, not every changed file: the file list already shows which files
+changed, and a cross-file search would need a results list the window has no
+room for.
+
 ### Branch mode compares against the merge base
 
 The diff has two comparisons, chosen by a toggle in the window header:

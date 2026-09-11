@@ -56,6 +56,11 @@ final class ShortcutsWindowController: NSWindowController {
         ("Changes Window", [
             ("⌘]", "Next change (in that window)"),
             ("⌘[", "Previous change (in that window)"),
+            ("⌘F", "Find in the active pane"),
+            ("⌘G / ↵", "Next match"),
+            ("⇧⌘G / ⇧↵", "Previous match"),
+            ("⌘E", "Find the selection"),
+            ("esc", "Close the find bar"),
             ("⌘R", "Refresh"),
             ("⌘W", "Close window"),
         ]),
