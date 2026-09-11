@@ -118,10 +118,17 @@ Three smaller decisions:
   opened from, cascaded down-right, and copy its sidebar width. There is
   nothing to key a per-window frame on: the windows are interchangeable, and a
   saved frame per index would move whichever window happened to be second.
-- **Closing a window doesn't ask.** It takes its sessions with it, agents and
-  all. That is the behavior the last window has always had, when closing it
-  quit the app; ⌘W (one pane) and ⌥⌘W (one session) still go through the core
-  and still confirm when a pane has something running.
+- **Quitting and closing a window ask first.** Reversed: a window used to
+  close without asking, like the last window always had when closing it quit
+  the app. Then an accidental ⌘Q took every session down, agents and all.
+  Now ⌘Q, Quit from the Dock, the core's `quit`, ⇧⌘W, the close button and
+  ⌥⇧⌘W (one question for all windows) each confirm, and every time - not
+  only when something is running, because an idle agent waiting at its
+  prompt is still the thing you'd lose. ⌘W (one pane) and ⌥⌘W (one session)
+  still go through the core and confirm only when a pane has something
+  running, so closing the last pane at an idle shell still closes the window,
+  and with it the app, unasked. Logout and shutdown never ask: a prompt there
+  would block the logout.
 - **A window can be named** (File > Rename Window...), because the intended
   use is one window per project. The name is only the `NSWindow` title, but the
   title is what the Window menu and the Dock icon's window list are built from,

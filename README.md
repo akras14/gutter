@@ -234,7 +234,7 @@ panel and this table but not in the menu bar.
 | Keys | Action |
 |---|---|
 | `cmd-n` | New window - its own sidebar, its own sessions, starting in the current session's directory. Also on the Dock icon's right-click menu, which is the way to open one without switching to Gutter first |
-| `cmd-shift-w` | Close the window, sessions and all. `alt-cmd-shift-w` closes them all (ghostty's `close_all_windows`) |
+| `cmd-shift-w` | Close the window, sessions and all, after asking. `alt-cmd-shift-w` closes them all (ghostty's `close_all_windows`), and `cmd-q` quits - both ask first too |
 | `cmd-t` / `cmd-w` | New tab / close pane (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory`. Closing a session's last pane closes the session |
 | `alt-cmd-w` | Close the whole session, however many panes it has (ghostty's `close_tab`) |
 | `cmd-shift-t` | New request: pick a folder and a tool, type a prompt, run it in a new background tab |
