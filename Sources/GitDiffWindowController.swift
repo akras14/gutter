@@ -53,6 +53,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private static let baseRefDefaultsKey = "Gutter Git Diff Base Refs"
     /// Kept across refreshes so a reload doesn't jump back to the first file.
     private var selectedPath: String?
+    /// The directory the header's summary describes. A reload of the same one
+    /// leaves the last summary up until the new one is ready, rather than
+    /// flashing the bare path in between.
+    private var labelledDirectory: String?
     /// Watches the repo on screen. Live only while the window is open: a hidden
     /// window has nothing to keep current, and the git call below shouldn't run
     /// for one.
@@ -149,6 +153,11 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         refreshButton.keyEquivalent = "r"
         refreshButton.keyEquivalentModifierMask = [.command]
         refreshButton.toolTip = "Re-read the working tree (⌘R)"
+        // Sized for the stale title up front, so the dot appearing doesn't
+        // widen the button and shift the controls beside it.
+        refreshButton.title = "Refresh •"
+        refreshButton.widthAnchor.constraint(equalToConstant: refreshButton.fittingSize.width).isActive = true
+        refreshButton.title = "Refresh"
         // windowWillClose stops the watcher; nothing else here needs a delegate.
         window.delegate = self
 
@@ -175,7 +184,16 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         // and squeeze out the path label.
         baseRefPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
 
-        let header = NSStackView(views: [pathLabel, baseToggle, baseRefPopup, previous, next, refreshButton])
+        // The controls hang off the trailing edge and the summary takes what is
+        // left. Packed after the summary instead, every control moved whenever
+        // its text changed length - on every mode switch, refresh and file
+        // count. The popup is the leftmost control for the same reason: it
+        // comes and goes with branch mode and its width follows the ref name,
+        // so it grows into the summary's room rather than pushing the toggle
+        // out from under the click that showed it.
+        let header = NSStackView()
+        header.setViews([pathLabel], in: .leading)
+        header.setViews([baseRefPopup, baseToggle, previous, next, refreshButton], in: .trailing)
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
@@ -334,6 +352,11 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         label.textColor = .secondaryLabelColor
         label.alignment = .center
+        // The left caption is a ref name in branch mode, and a label resists
+        // compression by default - a long one would widen both panes (they
+        // are held equal) and push the file list's divider over.
+        label.lineBreakMode = .byTruncatingMiddle
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
     }
 
@@ -449,6 +472,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         markStale(false)
         guard let directory else {
             pathLabel.stringValue = "no directory"
+            labelledDirectory = nil
             changes = []
             fileTable.reloadData()
             showNote("""
@@ -461,7 +485,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             return
         }
 
-        pathLabel.stringValue = (directory as NSString).abbreviatingWithTildeInPath
+        if directory != labelledDirectory {
+            pathLabel.stringValue = (directory as NSString).abbreviatingWithTildeInPath
+            labelledDirectory = directory
+        }
         window?.subtitle = (directory as NSString).lastPathComponent
         showNote("Loading...")
 
@@ -577,6 +604,11 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         repoRoot = repo?.root
         if let root = repo?.root { watcher.watch(root: root) } else { watcher.stop() }
         fillBaseRefPopup(candidates, selecting: baseline?.name)
+        // A load that ends without a summary falls back to the bare path, so
+        // the last load's summary doesn't stay up describing something else.
+        if repo == nil || baseline == nil {
+            pathLabel.stringValue = (directory as NSString).abbreviatingWithTildeInPath
+        }
         guard let repo else {
             self.changes = []
             fileTable.reloadData()
