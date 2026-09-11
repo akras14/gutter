@@ -40,6 +40,12 @@ enum MainMenu {
                                       action: #selector(AppDelegate.renameTab(_:)), keyEquivalent: "R")
         rename.keyEquivalentModifierMask = [.command, .shift]
         rename.target = target
+        // No key equivalent, deliberately: naming a window is a once-per-window
+        // action, and every ⌘-R-shaped key near ⇧⌘R is worth more to the
+        // terminal than to this. The name lands in the Window menu's list and
+        // the Dock icon's, which is what it is for.
+        fileMenu.addItem(withTitle: "Rename Window...",
+                         action: #selector(AppDelegate.renameWindow(_:)), keyEquivalent: "").target = target
         // cmd-shift-t: a new tab, but started on a request. VS Code has no
         // "new terminal with profile" binding to copy, and its own cmd-shift-t
         // (reopen closed editor) has no counterpart here.

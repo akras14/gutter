@@ -110,7 +110,7 @@ window "the app is active" was close enough - it is what marks a hand-off as
 read. With two, a covered window's selected session would mark itself read on
 every activation, and a bell in it would never light a dot at all.
 
-Two smaller decisions:
+Three smaller decisions:
 
 - **Only the first window remembers its frame.** macOS gives a frame autosave
   name to one window and refuses it to the rest, which is also the cleanest test
@@ -122,6 +122,25 @@ Two smaller decisions:
   all. That is the behavior the last window has always had, when closing it
   quit the app; ⌘W (one pane) and ⌥⌘W (one session) still go through the core
   and still confirm when a pane has something running.
+- **A window can be named** (File > Rename Window...), because the intended
+  use is one window per project. The name is only the `NSWindow` title, but the
+  title is what the Window menu and the Dock icon's window list are built from,
+  and those lists are the reason to name anything - four windows all called
+  "Gutter" are four identical rows.
+
+  Three things it deliberately isn't. It is not derived from the session's
+  directory: an auto-title tracking the selected tab would rewrite itself as
+  you switch sessions or `cd`, and the one thing a project label has to be is
+  stable. It is not persisted - nothing about a window is, not its sessions and
+  not its split layout, so a remembered name would outlive everything it named.
+  And it is not inherited by ⌘N: a second window called the same as the first
+  is the problem, not the feature.
+
+  No keybind, and no row in the ⌘? panel, which lists keys. It is a
+  once-per-window action, and the keys near ⇧⌘R (Rename Tab) are worth more to
+  the terminal. The rename is an `NSAlert` sheet rather than the in-place field
+  the sidebar uses: the title bar is AppKit's, with no view to swap for an
+  editor.
 
 ### The Dock is a way in, not just a way back
 
