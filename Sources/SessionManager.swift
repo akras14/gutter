@@ -29,12 +29,38 @@ final class Pane {
     /// True while the surface carries an OSC 9;4 progress report - the ConEmu
     /// sequence Windows Terminal, iTerm2 and ghostty all read as "working".
     /// Set from the surface's progressReport publisher.
-    var isWorking: Bool = false
+    var progressWorking: Bool = false
 
     /// Set on the working -> idle edge of a progress report. Serves the same
     /// purpose as Claude Code's "✳" title below: the pane just handed itself
     /// back to the user.
     var workFinished = false
+
+    /// The first character of the title, which is where every status glyph
+    /// below sits.
+    private var titleGlyph: Character? {
+        title.trimmingCharacters(in: .whitespaces).first
+    }
+
+    /// Claude Code's title spinner: it alternates these while it is working.
+    /// Captured off the pty, Claude Code 2.1.272 - "◐ Seven haiku",
+    /// "◑ Seven haiku", about once a second. The other two halves are here
+    /// because a four-phase cycle is the same spinner one version later.
+    private static let workingGlyphs: Set<Character> = ["◐", "◑", "◒", "◓"]
+
+    /// The tool says, in the title, that it is still working. A second
+    /// working signal and not a redundant one: Claude Code sends its OSC 9;4
+    /// report *once* per turn and the vendored wrapper drops an unrefreshed
+    /// report after 15s, so progress alone stops spinning 15 seconds into
+    /// every turn. This only spins the row - the dot is the progress
+    /// sink's business, and a cleared report no longer lights it.
+    var titleWorking: Bool {
+        guard let titleGlyph else { return false }
+        return Self.workingGlyphs.contains(titleGlyph)
+    }
+
+    /// Either signal spinning spins the row.
+    var isWorking: Bool { progressWorking || titleWorking }
 
     /// Claude Code prefixes the terminal title with a status glyph: "✳" when it
     /// hands the session back - finished, or asking something - and a spinner
@@ -44,7 +70,7 @@ final class Pane {
     /// included, never lights the dot. `workFinished` means the same thing for
     /// tools that speak OSC 9;4.
     var isReady: Bool {
-        title.trimmingCharacters(in: .whitespaces).hasPrefix("✳") || workFinished
+        titleGlyph == "✳" || workFinished
     }
 
     /// True once the user has looked at this pane while it was ready. The glyph
@@ -309,22 +335,39 @@ final class SessionManager {
         // OSC 9;4 progress. Only .set and .indeterminate mean the tool is
         // working. .pause and .error are hand-offs, not work - opencode's
         // progress plugin sends .pause for "waiting for input", which is
-        // precisely when the user is wanted - and so is a cleared report,
-        // whether that's the tool's own "remove" or the vendored wrapper's
-        // 15s expiry of an unrefreshed one. All of them light the dot rather
+        // precisely when the user is wanted - so they light the dot rather
         // than spin: the progress equivalent of the "✳" title.
+        //
+        // A *cleared* report says neither. It is the tool's own "remove" and
+        // the vendored wrapper's 15s expiry of an unrefreshed one, and those
+        // two are indistinguishable here, so a cleared report only stops the
+        // spin - it never lights the dot. Claude Code sends its report once
+        // per turn, which under the old reading lit the dot 15s into every
+        // turn. See DESIGN.md, "The sidebar status slot".
         let progressSub = view.$progressReport
             .receive(on: RunLoop.main)
             .sink { [weak self] report in
                 guard let self, live() else { return }
-                let state = report?.state
-                let working = state == .set || state == .indeterminate
-                let finished = !working
+                let working: Bool
+                let finished: Bool
+                switch report?.state {
+                case .set, .indeterminate:
+                    working = true
+                    finished = false
+                case .pause, .error:
+                    working = false
+                    finished = true
+                default:
+                    // Cleared, or a .remove the wrapper turns into one.
+                    working = false
+                    // Unknown, not idle: leave a pending hand-off standing.
+                    finished = pane.workFinished
+                }
                 // A .pause can arrive while already idle (the tool never
                 // reported work), so the dot has to key off both flags.
-                guard working != pane.isWorking || finished != pane.workFinished
+                guard working != pane.progressWorking || finished != pane.workFinished
                 else { return }
-                pane.isWorking = working
+                pane.progressWorking = working
                 pane.workFinished = finished
                 self.updateReadySeen(pane, in: session)
                 self.onListChanged?()

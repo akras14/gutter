@@ -251,20 +251,22 @@ per pane too, so a pane hidden behind a zoom does not count as read.
 
 The signals behind it, and why those and no others:
 
-- **Claude Code's title.** It writes a braille spinner into the terminal
-  title while working and prefixes the title with "✳" when it hands the
-  session back. The spinner rides along in the row's title text for free;
-  the "✳" prefix lights the dot. This is why Claude Code just works, and
-  why tools that write a static title (opencode's `OpenCode`) show nothing
-  - the title is the only text channel libghostty reports.
+- **Claude Code's title.** It alternates "◐" and "◑" at the front of the
+  terminal title while working and prefixes the title with "✳" when it hands
+  the session back. The glyph rides along in the row's title text for free;
+  the "✳" prefix lights the dot, and the spinner glyphs spin the row. This is
+  why Claude Code just works, and why tools that write a static title
+  (opencode's `OpenCode`) show nothing - the title is the only text channel
+  libghostty reports.
 - **The bell.** A BEL on a non-selected tab lights the dot.
 - **OSC 9;4 progress.** The ConEmu sequence Windows Terminal, iTerm2 and
   ghostty all read as "working"; libghostty surfaces it as the surface's
   `progressReport`. Only `.set` and `.indeterminate` spin. `.pause` and
-  `.error` are hand-offs, not work, and light the dot alongside a cleared
-  report - the same "handed back" edge as "✳". Reading a live report as
-  "working" regardless of state would spin through exactly the moment the
-  user is wanted, since `.pause` is how a tool says it is asking something.
+  `.error` are hand-offs, not work, and light the dot - the same "handed
+  back" edge as "✳". Reading a live report as "working" regardless of state
+  would spin through exactly the moment the user is wanted, since `.pause`
+  is how a tool says it is asking something. A *cleared* report is neither:
+  it only stops the spin. See the expiry note below.
 
 What was considered instead: opencode's attention notifications (OSC 99 /
 777 desktop notifications) were rejected as the spinner channel - they
@@ -345,6 +347,33 @@ goes unrefreshed for 15s is cleared (`SurfaceView_AppKit.swift`), which
 reads as the working -> idle edge. Emitters are expected to re-assert the
 report while busy; a send-once emitter shows a 15s spinner and an early
 dot.
+
+Claude Code is a send-once emitter, so this was not hypothetical. A pty
+capture of one turn (Claude Code 2.1.272) is, in full: `OSC 9;4;3;`
+(indeterminate) once as the turn starts, `OSC 9;4;0;` (remove) as it ends,
+and in between a title rewritten about once a second - `◐ Seven haiku`,
+`◑ Seven haiku`, ... - flipping to `✳ Seven haiku` at the hand-off. A
+cleared report used to read as a hand-off, so every turn longer than 15
+seconds stopped the spinner and lit the dot mid-thought.
+
+Two changes, kept separate on purpose:
+
+- **A cleared report no longer lights the dot.** An expiry and the tool's
+  own `.remove` arrive identically, and neither means "you are wanted" -
+  `.remove` says the progress bar is gone, and a tool that wants the user
+  says so with `.pause` or `.error`, both of which still light the dot.
+  This is the general half: it holds for any send-once emitter, glyph or no
+  glyph.
+- **The title spinner spins the row** (`Pane.titleWorking`). This is the
+  cosmetic half, and the only Claude-Code-specific part: without it the slot
+  simply goes empty 15 seconds in, since the report is gone and there is
+  nothing left to spin. The glyph list is a guess one version forward - the
+  two captured halves plus the other two - and if Claude Code changes its
+  spinner the slot goes empty again. Nothing else regresses, because the dot
+  does not depend on it.
+
+Read as a rule: the dot needs a tool to *say* it wants the user. Silence,
+however it arrives, is not a hand-off.
 
 ### The count leaves the window
 
