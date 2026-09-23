@@ -107,6 +107,22 @@ cursor-style = block
 cursor-style-blink = false
 ```
 
+### Scrolling prints `^[[A` in `watch`
+
+Not a config setting, and not a Gutter bug - but this is where you'll look.
+On the alternate screen (the one full-screen programs draw on), ghostty turns
+the scroll wheel into up/down arrow keys. That is what scrolls `less`, `man` and
+`vim`; in `watch`, which never reads input, the terminal echoes the keys
+instead. iTerm2 does the same by default. ghostty 1.3.1 has no config key for
+it, so turn it off from your shell with `~/.zshrc`:
+
+```sh
+printf '\e[?1007l'   # alternate screen: scroll wheel no longer sends arrow keys
+```
+
+The cost: the wheel stops scrolling `less`, `man` and any other program that
+relies on the arrow keys rather than asking for the mouse itself.
+
 ### `keybind`
 
 Same syntax as ghostty - `keybind = super+n=unbind`, `keybind = super+d=...` -
