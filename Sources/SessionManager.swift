@@ -303,7 +303,9 @@ final class SessionManager {
             .receive(on: RunLoop.main)
             .sink { [weak self] title in
                 guard let self, live() else { return }
+                let wasWorking = pane.isWorking
                 pane.title = title
+                self.clearHandOffIfResumed(pane, wasWorking: wasWorking)
                 self.updateReadySeen(pane, in: session)
                 self.onListChanged?()
                 // A retitle means the shell ran something, which is the only
@@ -367,8 +369,10 @@ final class SessionManager {
                 // reported work), so the dot has to key off both flags.
                 guard working != pane.progressWorking || finished != pane.workFinished
                 else { return }
+                let wasWorking = pane.isWorking
                 pane.progressWorking = working
                 pane.workFinished = finished
+                self.clearHandOffIfResumed(pane, wasWorking: wasWorking)
                 self.updateReadySeen(pane, in: session)
                 self.onListChanged?()
             }
@@ -664,6 +668,17 @@ final class SessionManager {
             if isVisible(pane, in: session) { pane.hasActivity = false }
             updateReadySeen(pane, in: session)
         }
+    }
+
+    /// A pane that goes back to work has moved past whatever it last handed
+    /// back, so the dot for it is stale: an unseen bell or a .pause from the
+    /// previous turn would otherwise sit behind the spinner and come back,
+    /// badge and all, when this turn ends. Edge-triggered, so a bell that
+    /// rings mid-turn still lights the dot.
+    private func clearHandOffIfResumed(_ pane: Pane, wasWorking: Bool) {
+        guard pane.isWorking, !wasWorking else { return }
+        pane.hasActivity = false
+        pane.workFinished = false
     }
 
     private func updateReadySeen(_ pane: Pane, in session: Session) {

@@ -505,7 +505,7 @@ final class ActivityDotView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard isActive else { return }
-        NSColor.systemOrange.setFill()
+        NSColor.systemGreen.setFill()
         NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5)).fill()
     }
 }

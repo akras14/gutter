@@ -238,8 +238,15 @@ uses git alone - see the diff base picker below for how that played out.
 ## The sidebar status slot
 
 Each row's leading slot shows one of three things: a spinner while the
-session is working, an orange dot when it wants the user, the row's close
+session is working, a green dot when it wants the user, the row's close
 button on hover.
+
+The dot is cleared when the pane goes back to work - the idle -> working edge
+of either spinner signal drops a pending bell and a pending `.pause`/`.error`.
+Once the agent is running again, whatever it handed back last turn is history,
+and a dot left standing behind the spinner would reappear (and hold the Dock
+badge up) when the turn ended. It is the edge, not the state: a bell that
+rings mid-turn still lights the dot.
 
 A row is a session and a session is a tree of panes, so every signal below is
 read per pane and folded into the row. The folds are not all the same, and the
