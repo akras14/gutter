@@ -140,6 +140,13 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         // shortcut brings the same one back - so the window must not be
         // released out from under that reference.
         window.isReleasedWhenClosed = false
+        // Opened from a fullscreen terminal, a plain window joins that Space
+        // and macOS stretches it to fill it - and a fullscreen window draws
+        // below everything sharing its Space, so ⌘` focused the terminal
+        // without ever showing it. Refusing fullscreen is what keeps this
+        // window on a desktop Space instead, where the two can be switched
+        // between. The only other effect is that the green button zooms.
+        window.collectionBehavior.insert(.fullScreenNone)
         self.init(window: window)
 
         pathLabel.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)

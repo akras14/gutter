@@ -575,6 +575,22 @@ toggle out from under the pointer. Refresh is sized for its stale title
 directory runs, and the pane captions truncate rather than letting a long ref
 name widen the panes and push the file list's divider.
 
+### It never shares a fullscreen terminal's Space
+
+Opened from a fullscreen terminal, a plain window joins the terminal's Space,
+and macOS stretches it to fill the screen. A fullscreen window always draws
+below the other windows on its Space, so ⌘` moved focus to the terminal while
+the diff stayed on top of it - it looked like the key did nothing (#4). So the
+changes window refuses fullscreen (`.fullScreenNone`), and a window that can't
+be fullscreen opens on a desktop Space instead, where switching between the
+two works.
+
+Two alternatives were tried and dropped. Letting the diff go fullscreen too
+puts the windows on separate fullscreen Spaces, and ⌘` doesn't cross Spaces.
+Hiding the diff whenever the terminal takes focus would leave ⌘` with nothing
+to cycle back to. The cost: the diff's green button zooms instead of going
+fullscreen.
+
 ### It says when it has gone stale, and doesn't reload itself
 
 The window is open while an agent is writing, so what it shows goes out of date
