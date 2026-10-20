@@ -163,7 +163,7 @@ signature the same across builds:
    `CSSMERR_TP_NOT_TRUSTED` next to it is expected and harmless.
 5. `./make-app.sh` now prints `signed with "Gutter Dev"`. If macOS asks
    whether `codesign` may use the key, choose **Always Allow**.
-   `codesign -dv dist/Gutter.app 2>&1 | grep Authority` should show
+   `codesign -dvv dist/Gutter.app 2>&1 | grep Authority` should show
    `Authority=Gutter Dev`.
 6. Grant Full Disk Access one last time: System Settings -> Privacy & Security
    -> Full Disk Access, remove Gutter, add `dist/Gutter.app`, then quit with
