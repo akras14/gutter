@@ -15,6 +15,9 @@ final class SidebarViewController: NSViewController {
     /// under the user mid-edit; hold it until the edit finishes.
     private var renamingRow: Int?
     private var pendingReload = false
+    /// What the rename field opened with. Enter on an untouched field is a
+    /// cancel, not a commit - see `beginRename(row:)`.
+    private var renameSeed = ""
 
     init(sessions: SessionManager) {
         self.sessions = sessions
@@ -133,13 +136,18 @@ final class SidebarViewController: NSViewController {
         tableView.scrollRowToVisible(row)
         guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? SessionCellView else { return }
         renamingRow = row
-        // Seed with the custom name and nothing else: an unnamed session opens
-        // an empty field. Seeding it with the shell title instead made Enter
-        // look like it had rewritten the row on its own. What the row would
-        // show without a name becomes the placeholder, so clearing the field
-        // visibly means "go back to that".
+        // Seed with what the row shows right now, selected, so a title can be
+        // tweaked rather than retyped (#5). This used to seed only the custom
+        // name, leaving an unnamed session's title as uneditable placeholder
+        // text, because seeding the shell title made Enter pin it: the row
+        // stopped following the shell, as if it had renamed itself. Two rules
+        // keep that from coming back. Enter on an unchanged field is a cancel
+        // (`finishRename`), so the auto title stays live. And the auto title
+        // is still the placeholder, so clearing the field visibly means "go
+        // back to that".
         let session = sessions.sessions[row]
-        cell.beginRename(seed: session.customTitle ?? "",
+        renameSeed = session.primaryLine
+        cell.beginRename(seed: renameSeed,
                          placeholder: session.autoTitle,
                          delegate: self)
     }
@@ -152,7 +160,7 @@ final class SidebarViewController: NSViewController {
 
         let name = field.stringValue
         (field.superview as? SessionCellView)?.endRename()
-        if commit, row < sessions.sessions.count {
+        if commit, name != renameSeed, row < sessions.sessions.count {
             sessions.rename(sessions.sessions[row], to: name)
         }
         // The terminal always owns focus in this app; without this the table
