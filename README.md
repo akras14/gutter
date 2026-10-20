@@ -237,7 +237,7 @@ panel and this table but not in the menu bar.
 | `cmd-shift-w` | Close the window, sessions and all, after asking. `alt-cmd-shift-w` closes them all (ghostty's `close_all_windows`), and `cmd-q` quits - both ask first too |
 | `cmd-t` / `cmd-w` | New tab / close pane (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory`. Closing a session's last pane closes the session |
 | `alt-cmd-w` | Close the whole session, however many panes it has (ghostty's `close_tab`) |
-| `cmd-shift-t` | New request: pick a folder and a tool, type a prompt, run it in a new background tab |
+| `cmd-shift-t` | New request: pick a folder and a tool, type a prompt (`shift-return` for a new line), run it in a new background tab |
 | `cmd-shift-r` | Rename tab |
 | `cmd-1..9` | Select tab N |
 | `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |

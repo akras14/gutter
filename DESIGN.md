@@ -682,6 +682,12 @@ agent finishes.
 The prompt is single-quoted before it goes in. It is the user's prose, so
 apostrophes, quotes and `$` in it must never reach the shell as syntax.
 
+A multi-line request goes in the same way, line breaks and all. A newline
+inside the quotes is not Enter to the shell: zsh shows its `quote>`
+continuation and keeps reading, and the tool gets one argument with every line
+break and blank line intact (checked against an interactive `zsh -f` on a pty).
+The cost is a few continuation prompts left in the scrollback above the tool.
+
 ### The new tab doesn't take focus
 
 `newSession(select:)` exists for this. The pty spawns in `SurfaceView.init`, at
