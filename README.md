@@ -147,6 +147,31 @@ below if needed). Always run the app from the bundled `.app` - the bare binary
 crashes because ghostty's logger force-unwraps
 `Bundle.main.bundleIdentifier`.
 
+### Signing certificate (once per machine)
+
+Without one, `make-app.sh` ad-hoc signs, and macOS drops privacy grants (Full
+Disk Access, Downloads, Documents, ...) on every rebuild. They still show ON in
+System Settings, but they are refused. A self-signed certificate keeps the
+signature the same across builds:
+
+1. Open Keychain Access. On recent macOS it isn't in `/Applications`:
+   `open "/System/Library/CoreServices/Applications/Keychain Access.app"`.
+2. **Keychain Access -> Certificate Assistant -> Create a Certificate...**
+3. Name `Gutter Dev` (exactly; `make-app.sh` finds it by name), Identity Type
+   **Self Signed Root**, Certificate Type **Code Signing**. Create, then Done.
+4. Check: `security find-identity -p codesigning` lists `"Gutter Dev"`.
+   `CSSMERR_TP_NOT_TRUSTED` next to it is expected and harmless.
+5. `./make-app.sh` now prints `signed with "Gutter Dev"`. If macOS asks
+   whether `codesign` may use the key, choose **Always Allow**.
+   `codesign -dv dist/Gutter.app 2>&1 | grep Authority` should show
+   `Authority=Gutter Dev`.
+6. Grant Full Disk Access one last time: System Settings -> Privacy & Security
+   -> Full Disk Access, remove Gutter, add `dist/Gutter.app`, then quit with
+   `cmd-q` and relaunch. Later rebuilds keep the grant.
+
+A different name works with `LOCAL_SIGN_NAME=...`. `SIGN_ID` (a Developer ID
+identity) still wins over both, for builds other people run.
+
 ## Developing
 
 - **App code**: edit `Sources/`, then `./build.sh && ./make-app.sh`. There is no
@@ -210,7 +235,9 @@ cd gutter/dist && zip -r Gutter.zip Gutter.app
 Recipients should know:
 
 - **arm64 (Apple Silicon) only**, macOS 13+.
-- The app is **ad-hoc signed** (no developer certificate). On another Mac,
+- Without `SIGN_ID` the app has no developer certificate: it is ad-hoc signed,
+  or signed with your local self-signed `Gutter Dev` certificate if you made
+  one (BUILDING.html, Signing). On another Mac,
   Gatekeeper will block the first launch: right-click -> Open, or clear the
   quarantine flag with `xattr -cr Gutter.app`.
 - It reads `~/.config/gutter/config`, not any Ghostty config; on a fresh

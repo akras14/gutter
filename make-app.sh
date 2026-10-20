@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assembles dist/Gutter.app from the built binary + Info.plist and
-# ad-hoc signs it. The app must be run as a bundle (not the bare binary).
+# signs it (see Signing below). The app must be run as a bundle (not the bare binary).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -31,19 +31,34 @@ fi
 if [ -d "$RES_SRC/terminfo" ]; then
     cp -R "$RES_SRC/terminfo" "$APP/Contents/Resources/terminfo"
 fi
-# Signing. Unset SIGN_ID (the normal case) gives an ad-hoc signature, which
-# only works on this machine: macOS keys TCC grants to the ad-hoc cdhash, so
-# every rebuild re-asks for Downloads/Documents/etc. Set SIGN_ID to a
-# "Developer ID Application: ..." identity (security find-identity -v
-# -p codesigning) for a build others can run - that adds the hardened runtime
-# and a trusted timestamp, both required by notarization.
+# Signing, three ways:
+# - SIGN_ID set: a "Developer ID Application: ..." identity (security
+#   find-identity -v -p codesigning) for a build others can run. Adds the
+#   hardened runtime and a trusted timestamp, both required by notarization.
+# - Otherwise, a self-signed "Gutter Dev" code signing certificate if the
+#   keychain has one (one-time setup in BUILDING.html). macOS keys TCC grants
+#   to the designated requirement, and a certificate's stays the same across
+#   rebuilds, so Full Disk Access, Downloads, Documents etc. survive one (#7).
+#   Matched without -v: a self-signed certificate is never "valid" to
+#   find-identity, but codesign signs with it all the same. Signed by hash,
+#   so two certificates with the same name don't make codesign refuse.
+# - Otherwise ad-hoc. That only works on this machine, and the grant is keyed
+#   to the build's cdhash, so every rebuild is a new app to TCC: grants show
+#   ON in System Settings and are silently refused.
 # No --deep: the bundle has exactly one Mach-O, Contents/MacOS/Gutter.
+LOCAL_SIGN_NAME=${LOCAL_SIGN_NAME:-Gutter Dev}
+LOCAL_ID=$(security find-identity -p codesigning 2>/dev/null \
+    | awk -v name="\"$LOCAL_SIGN_NAME\"" 'index($0, name) { print $2; exit }' || true)
 if [ -n "${SIGN_ID:-}" ]; then
     codesign --force --options runtime --timestamp \
         --entitlements Gutter.entitlements \
         --sign "$SIGN_ID" "$APP"
+elif [ -n "$LOCAL_ID" ]; then
+    codesign --force --entitlements Gutter.entitlements --sign "$LOCAL_ID" "$APP"
+    echo "signed with \"$LOCAL_SIGN_NAME\" ($LOCAL_ID)"
 else
     codesign --force --entitlements Gutter.entitlements --sign - "$APP"
+    echo "ad-hoc signed: privacy grants reset on every rebuild (see BUILDING.html, Signing)"
 fi
 
 # Notarization. Needs a signed build plus credentials stored once with

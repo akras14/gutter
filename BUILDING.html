@@ -50,6 +50,23 @@ and links against the vendored static <code>deps/lib/libghostty.a</code>. Everyt
 is committed in <code>deps/</code> (stripped lib, headers, resources) - no ghostty checkout needed to build.
 Setting <code>GHOSTTY=&lt;checkout&gt;</code> links a checkout's GhosttyKit.xcframework instead.</p>
 
+<h2 id="signing">Signing (one-time setup)</h2>
+<p>Without a certificate, <code>make-app.sh</code> ad-hoc signs, and macOS ties privacy grants to that one
+build: after every rebuild, Full Disk Access, Downloads, Documents and the rest still show ON in
+System Settings, but are refused. Anything run inside Gutter then gets <code>Operation not permitted</code>
+on protected paths, such as <code>~/Library/CloudStorage</code>. A self-signed certificate fixes this, because its
+signature stays the same from build to build:</p>
+<ol>
+  <li>Keychain Access &rarr; Keychain Access menu &rarr; Certificate Assistant &rarr; Create a Certificate...</li>
+  <li>Name <code>Gutter Dev</code>, Identity Type <em>Self Signed Root</em>, Certificate Type <em>Code Signing</em> &rarr; Create.</li>
+  <li><code>./make-app.sh</code> picks it up by name and prints <code>signed with "Gutter Dev"</code>.
+      <code>codesign -dv dist/Gutter.app</code> shows <code>Authority=Gutter Dev</code>, not <code>Signature=adhoc</code>.</li>
+  <li>Grant Full Disk Access once more for the newly signed app: remove Gutter from the list, add
+      <code>dist/Gutter.app</code> again, then quit Gutter with &#8984;Q and relaunch it. Later rebuilds keep the grant.</li>
+</ol>
+<p>The first signing may ask for keychain access to the key: choose <em>Always Allow</em>. A different certificate name
+works with <code>LOCAL_SIGN_NAME=...</code>. <code>SIGN_ID</code> (a Developer ID) still takes precedence, for builds others run.</p>
+
 <h2>Layout</h2>
 <table>
   <tr><th>Path</th><th>Purpose</th></tr>
