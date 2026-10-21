@@ -120,6 +120,8 @@ enum MainMenu {
                                     action: #selector(AppDelegate.showGitDiff(_:)), keyEquivalent: "g")
         diff.keyEquivalentModifierMask = [.control, .shift]
         diff.target = target
+        // The toolbar button's own symbol, so the item reads as that button.
+        diff.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
         viewMenu.addItem(.separator())
         // The keys here are ghostty's own defaults, which the core claims
         // before the menu bar sees them - these items carry the same
