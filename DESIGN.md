@@ -149,6 +149,44 @@ Three smaller decisions:
   the sidebar uses: the title bar is AppKit's, with no view to swap for an
   editor.
 
+### No toolbar in fullscreen
+
+The toolbar is hidden for the whole of native fullscreen and comes back on the
+way out (#2). Its two buttons stay reachable as View menu items with keys:
+Toggle Sidebar (`⌘B`) and Show Changes (`⌃⇧G`). The menu bar still slides down
+at the top edge, so the menu is one hover away.
+
+It used to auto-hide with the menu bar (`.autoHideToolbar`), and that got
+stuck. Reveal the bar with the pointer, swipe to another Space, move the
+pointer down there, swipe back, and the bar stays down over the terminal until
+the pointer goes back up to it. Every fix tried on Space return left it there,
+each checked against logged bar frames:
+
+- re-applying `.autoHideToolbar`, in one run-loop turn and across two;
+- handing focus back to the window - the bar's `NSToolbarFullScreenWindow` was
+  key while stuck;
+- toggling `toolbar.isVisible`, which left the bar down, just without the menu
+  bar above it;
+- sending the bar's hover tracking area (on `NSTitlebarContainerView`, options
+  `0x23`, `.activeInKeyWindow`) the `mouseExited` it missed. It arrived, and the
+  bar stayed.
+
+Removing `.autoHideMenuBar` to re-apply it crashed the app: AppKit swaps in
+`.hideMenuBar`, and the two can't be set together. Going further means more of
+AppKit's private bar, and a crash is worse than a bar that needs a hover. So
+there is nothing to strand.
+
+The toolbar is hidden before the transition and shown after it, never during.
+The hand-rolled auto-hide that preceded `.autoHideToolbar` swapped
+`window.toolbar` in and out mid-fullscreen, which left it without its items and
+at the wrong height. One toolbar stays attached throughout; only its visibility
+flips, at the edges.
+
+Not done: a non-native fullscreen mode (a borderless window over the screen,
+like iTerm2's and Ghostty's), which would allow a reveal of Gutter's own. It
+costs the separate Space and the swipe to it. Worth it only if the bare title
+bar, which still slides down with the menu bar, turns out to stick too.
+
 ### The Dock is a way in, not just a way back
 
 Two entry points beyond the menu bar, because the app is for leaving running

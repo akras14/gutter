@@ -276,8 +276,8 @@ panel and this table but not in the menu bar.
 | `ctrl-cmd-arrows` | Resize the pane |
 | `cmd-shift-enter` | Zoom the pane, and back |
 | `ctrl-cmd-=` | Equalize panes |
-| `cmd-b` or toolbar button | Toggle sidebar |
-| `ctrl-shift-g` | Show changes (side-by-side diff) |
+| `cmd-b` or toolbar button | Toggle sidebar. No toolbar in fullscreen: the key or View > Toggle Sidebar |
+| `ctrl-shift-g` or toolbar button | Show changes (side-by-side diff). No toolbar in fullscreen: the key or View > Show Changes |
 | `cmd-c` / `cmd-v` / `cmd-a` | Copy / paste / select all (Edit menu items on the responder chain - the ghostty core binds none of these) |
 | `cmd-f` / `cmd-g` / `cmd-shift-g` | Find in scrollback / next / previous |
 | `cmd-e` | Use selection for find |

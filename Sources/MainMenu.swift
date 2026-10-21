@@ -112,8 +112,10 @@ enum MainMenu {
                          action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
         // No explicit target: the responder chain delivers this to MainSplitViewController.
         // ctrl-cmd-shift-g would be the obvious pick, but VS Code opens source
-        // control with ctrl-shift-g and this window is the same idea; the
-        // toolbar button is unreachable in fullscreen, where the bar is hidden.
+        // control with ctrl-shift-g and this window is the same idea. This and
+        // Toggle Sidebar are the toolbar's two buttons, and in fullscreen,
+        // where there is no toolbar, these items and their keys are the only
+        // way to them - keep both here, at the top of View.
         let diff = viewMenu.addItem(withTitle: "Show Changes",
                                     action: #selector(AppDelegate.showGitDiff(_:)), keyEquivalent: "g")
         diff.keyEquivalentModifierMask = [.control, .shift]

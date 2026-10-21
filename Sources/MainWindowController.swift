@@ -282,8 +282,9 @@ extension MainWindowController {
     }
 }
 
-// Fullscreen chrome: the top bar auto-hides for the duration of native
-// fullscreen and slides back when the pointer reaches the top edge.
+// Fullscreen chrome: no toolbar in fullscreen. The menu bar auto-hides as
+// usual, and the pointer at the top edge brings back only it and the slim
+// title bar with the window buttons.
 extension MainWindowController {
     func windowDidBecomeKey(_ notification: Notification) {
         // This is the front window now: the menu bar acts on its sessions.
@@ -298,20 +299,44 @@ extension MainWindowController {
         Ghostty.moveFocus(to: session.view)
     }
 
-    // AppKit keeps a window's toolbar on screen in fullscreen unless the app
-    // asks otherwise, so ask: .autoHideToolbar makes the toolbar slide away
-    // with the menu bar and slide back on a pointer at the top edge, which is
-    // exactly the wanted behavior and is animated by the system.
+    // The toolbar is hidden for the whole of fullscreen (#2). It used to
+    // auto-hide with the menu bar (.autoHideToolbar), and that got stuck:
+    // reveal the bar, swipe to another Space, move the pointer down there,
+    // swipe back, and the bar stayed down over the terminal until the pointer
+    // went back up to it. Every fix tried on Space return left it there:
+    // re-applying the presentation options (in one turn and across two),
+    // handing focus back from the bar's NSToolbarFullScreenWindow (key while
+    // stuck), toggling toolbar.isVisible, and sending the bar's hover tracking
+    // area the mouseExited it missed. Removing .autoHideMenuBar to re-apply it
+    // crashed the app. Rather than reach further into AppKit's private bar,
+    // there is no toolbar to strand. See DESIGN.md, "No toolbar in fullscreen".
     //
-    // This replaces a hand-rolled version that swapped `window.toolbar` in and
-    // out while fullscreen. That churn broke the bar: re-attaching a toolbar
-    // mid-fullscreen left it without its items and at the wrong height, and the
-    // damaged toolbar was then restored on the way out. Don't reintroduce it.
+    // Both of its buttons are View menu items with a key - Toggle Sidebar
+    // (cmd-b) and Show Changes (ctrl-shift-g) - and the menu bar still slides
+    // down at the top edge, so the menu is always one hover away.
     //
-    // .autoHideToolbar is only legal alongside .fullScreen and .autoHideMenuBar.
+    // Hidden before the transition and shown after it, never during. An
+    // earlier hand-rolled auto-hide swapped `window.toolbar` in and out while
+    // fullscreen, and that churn broke the bar: re-attaching a toolbar
+    // mid-fullscreen left it without its items and at the wrong height, and
+    // the damaged toolbar was then restored on the way out. This keeps one
+    // toolbar attached throughout and only flips its visibility at the edges.
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        window?.toolbar?.isVisible = false
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        window?.toolbar?.isVisible = true
+    }
+
+    // A fullscreen that fails to start never reaches didExit.
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        window.toolbar?.isVisible = true
+    }
+
     func window(_ window: NSWindow,
                 willUseFullScreenPresentationOptions proposed: NSApplication.PresentationOptions)
     -> NSApplication.PresentationOptions {
-        [proposed, .fullScreen, .autoHideMenuBar, .autoHideToolbar]
+        [proposed, .fullScreen, .autoHideMenuBar]
     }
 }
