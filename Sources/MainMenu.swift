@@ -19,6 +19,10 @@ enum MainMenu {
                                      action: #selector(AppDelegate.reloadConfigFile(_:)), keyEquivalent: ",")
         reload.keyEquivalentModifierMask = [.command, .shift]
         reload.target = target
+        // No key equivalent: VS Code's is the chord ⌘K ⌘T, and nothing else
+        // here is a chord. Picking a theme is rare enough to go by menu.
+        appMenu.addItem(withTitle: "Choose Theme...",
+                        action: #selector(AppDelegate.chooseTheme(_:)), keyEquivalent: "").target = target
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Gutter", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit Gutter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

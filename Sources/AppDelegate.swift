@@ -382,7 +382,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
 
     /// Creates `configPath` (and its directory) when it doesn't exist yet, so
     /// the Config menu always has a file to open. Only ever creates it: an
-    /// existing file is someone's own and is never rewritten.
+    /// existing file is someone's own: the only edit Gutter ever makes to it is
+    /// the theme picker's one `theme =` line, on Save.
     ///
     /// The template carries one live setting, `notify-on-command-finish`. It
     /// is a seed and not an override on purpose: written into the user's file,
@@ -393,7 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
     ///
     /// Returns false and alerts when creation fails.
     @discardableResult
-    private static func ensureConfigFile(alerting: Bool) -> Bool {
+    static func ensureConfigFile(alerting: Bool) -> Bool {
         let url = URL(fileURLWithPath: configPath)
         if FileManager.default.fileExists(atPath: url.path) { return true }
         let template = """
@@ -466,6 +467,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         if !errors.isEmpty {
             Self.alert(title: "Gutter config errors", message: errors.joined(separator: "\n"))
         }
+    }
+
+    private var themePicker: ThemePickerWindowController?
+
+    @objc func chooseTheme(_ sender: Any?) {
+        let picker = themePicker ?? ThemePickerWindowController(
+            ghostty: ghostty, configPath: Self.configPath,
+            ensureConfigFile: { Self.ensureConfigFile(alerting: true) })
+        themePicker = picker
+        picker.present()
     }
 
     private static func alert(title: String, message: String) {

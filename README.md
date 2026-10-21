@@ -26,7 +26,9 @@ writes a short commented template carrying one setting,
 `notify-on-command-finish = unfocused`, which is what lights the dot for a
 plain shell - a build or a test run finishing in a tab you aren't looking at.
 Edit or delete the line like any other; a config file that already exists is
-never rewritten. `CONFIG.md` is the short list of settings worth knowing about
+never rewritten, except for the one `theme =` line that **Gutter > Choose
+Theme...** saves. That picker previews the bundled themes live as you move
+through them and changes nothing until Save. `CONFIG.md` is the short list of settings worth knowing about
 - ghostty's own reference has several hundred. Ghostty's own config files are never loaded - to inherit
 them, add `config-file = ?~/.config/ghostty/config` (or the path to
 `com.mitchellh.ghostty/config.ghostty`; `?` means "skip if missing").

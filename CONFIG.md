@@ -79,13 +79,16 @@ is why ghostty doesn't ship this as the macOS default.
 
 ### `theme`, `font-family`, `font-size`
 
-463 themes ship inside the app. To see the names:
+463 themes ship inside the app. **Gutter > Choose Theme...** lists them with a
+colour swatch each and previews the one you select in every window; Save
+writes `theme = <name>` here, replacing the last `theme` line, and Cancel puts
+the old one back. To see the names without it:
 
 ```sh
 ls /Applications/Gutter.app/Contents/Resources/ghostty/themes
 ```
 
-Use one by name: `theme = Builtin Tango Dark`. `font-thicken = true` (default
+Or set one by hand: `theme = Builtin Tango Dark`. `font-thicken = true` (default
 off) helps a thin font on a non-Retina display.
 
 ### `working-directory`

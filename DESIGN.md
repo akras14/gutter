@@ -299,7 +299,8 @@ A seed, not an override. The embedder config `main.swift` writes loads *after*
 the user's file and wins over it - right for the keybinds it carries, wrong for
 a default, which has to be something the user can edit or delete. The cost is
 that a seed only reaches a machine that hasn't run Gutter before; an existing
-config keeps whatever it says, and Gutter never rewrites it.
+config keeps whatever it says, and Gutter never rewrites it for this. (It
+edits one line of it in one place - the theme picker's Save, below.)
 
 What it does not do is make noise. `bell-features` - the system alert sound,
 the dock bounce, the 🔔 title prefix - is handled in ghostty's own app target,
@@ -627,6 +628,37 @@ ignored directory doesn't, a `git status` doesn't, a commit does.
 The dot is path-based, not content-based, so writing a file with the content it
 already had still lights it. Asking whether the *diff* changed means diffing,
 which is the reload this deliberately doesn't do.
+
+## The theme picker writes one line
+
+Gutter > Choose Theme... lists the bundled themes and previews the selected one
+live, in every window. It exists because choosing a theme by hand meant
+listing a resource folder, editing the config and reloading, once per theme
+tried, with no way to compare two.
+
+This is the one exception to "Gutter never rewrites your config", and it was
+taken knowingly: a picker that only previewed and left the user to paste the
+line was offered and turned down. What keeps it small:
+
+- **Nothing is written until Save.** The preview is a config built in memory
+  the way `Ghostty.Config` builds one - the file, its includes, the embedder
+  overrides - with a temporary `theme = <name>` file loaded last, handed to
+  the app with `ghostty_app_update_config`. Cancel, Esc and the close button
+  reload the real file, which puts back what it says.
+- **Save edits one line.** It replaces the last `theme =` line - the one
+  ghostty uses - or appends one, and leaves comments, order and every other
+  line alone. It writes through a symlink rather than over it, since a
+  dotfiles checkout often links this file. A `light:...,dark:...` value is
+  replaced by the single theme picked; the picker has no notion of pairs.
+- **It says when the line loses.** The file is not the last word: a
+  `config-file` include is loaded after it and can set its own theme, which
+  the preview (loaded last of all) never sees. After saving, the background
+  the file now produces is compared with the preview's, and a mismatch gets
+  an alert instead of a Save that looks broken.
+
+No keybind: VS Code's is the chord `⌘K ⌘T`, Gutter has no chords, and picking a
+theme is rare. Only the bundled themes are listed - not ghostty's
+`~/.config/ghostty/themes` - in keeping with "Self-contained" above.
 
 ## Firing off requests
 
