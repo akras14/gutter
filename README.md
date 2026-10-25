@@ -142,6 +142,10 @@ cd ak/gutter
 open dist/Gutter.app
 ```
 
+`./make-app.sh --install` also copies the bundle to `/Applications/Gutter.app`
+and registers it with Launch Services. Quit a running installed copy and
+relaunch it to pick up the new build.
+
 `build.sh` prefers the committed `deps/` (stripped static `libghostty` +
 headers + resources). Setting `GHOSTTY=<checkout>` overrides it and links the
 checkout's GhosttyKit.xcframework instead (with the archive-repair workaround

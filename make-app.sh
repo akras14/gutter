@@ -1,6 +1,7 @@
 #!/bin/bash
 # Assembles dist/Gutter.app from the built binary + Info.plist and
 # signs it (see Signing below). The app must be run as a bundle (not the bare binary).
+# Pass --install to also copy it to /Applications.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -76,3 +77,14 @@ if [ -n "${NOTARY_PROFILE:-}" ]; then
 fi
 
 echo "built: $APP"
+
+# Replaces /Applications/Gutter.app wholesale. A copy that is running keeps
+# going on the old binary, but loads resources lazily, so quit it (cmd-q) and
+# relaunch. lsregister points Launch Services at the new copy, so Spotlight and
+# `open -a Gutter` find it rather than dist/.
+if [ "${1:-}" = "--install" ]; then
+    rm -rf /Applications/Gutter.app
+    cp -R "$APP" /Applications/
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Gutter.app
+    echo "installed: /Applications/Gutter.app"
+fi

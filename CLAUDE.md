@@ -12,7 +12,7 @@ in their source, and which of Gutter's decisions it bears on.
 
 ```sh
 ./build.sh      # compile, ~30s
-./make-app.sh   # assemble dist/Gutter.app
+./make-app.sh   # assemble dist/Gutter.app (--install also copies it to /Applications)
 open dist/Gutter.app
 ```
 
