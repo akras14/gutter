@@ -57,7 +57,7 @@ no build-script change.
   still look like a working app - test `cmd-w` too.
 - **A new keybind lands in three places.** `Sources/MainMenu.swift` (the menu item),
   `Sources/ShortcutsWindowController.swift` (the ⌘? panel, written by hand), and the
-  Keybinds table in `README.md`. All three are hand-maintained - nothing generates them
+  Keyboard shortcuts tables in `README.md` (and the Changes window table, for its keys). All three are hand-maintained - nothing generates them
   from the menu - so a shortcut added to only one of them silently goes undocumented.
   A fourth place, but only for the core keybind overrides in `main.swift`: the table of
   claimed keys in `CONFIG.md`.

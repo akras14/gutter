@@ -1,43 +1,111 @@
 # Gutter
 
-A small native macOS terminal app with a vertical tab sidebar, embedding
-[libghostty](https://ghostty.org) (ghostty **v1.3.1**) as a static library.
+A native macOS terminal for running several coding agents side by side.
+It is [Ghostty](https://ghostty.org)'s engine and renderer, with a sidebar of
+full-height sessions in place of a tab bar.
 
 ![Gutter in 20 seconds: the session sidebar, the attention dot, splits, the side-by-side diff and themes](media/gutter-demo.gif)
 
 [Watch it as an MP4](media/gutter-demo.mp4).
 
-A window is a collapsible sidebar of sessions and the selected session's panes;
-`⌘N` opens another, with its own sessions. **File > Rename Window...** names
-one - the name shows in the title bar, the Window menu and the Dock icon's
-window list, which is what makes one window per project navigable. Every pane is a real libghostty surface -
-Metal rendering, PTY handling, VT emulation, input/IME and config loading all come
-from ghostty's core and its own Swift wrapper. The app itself is the window shell,
-sidebar and session manager in AppKit, over a pane tree that is ghostty's own SwiftUI. No Xcode project: everything
-builds with `swiftc` + scripts.
+## Features
 
-A session that wants you - Claude Code handing the turn back, a bell, an
-OSC 9;4 pause - lights a dot on its sidebar row, and the Dock icon carries the
-count so it reads without switching to the app. **View > Next Session Needing
-Attention** jumps to the next one. `DESIGN.md` lists what does and doesn't
-light a dot.
+**Sessions**
 
-Config lives in `~/.config/gutter/config`, in ghostty's config syntax: theme,
-font size, working directory and keybinds are read from there. First launch
-writes a short commented template carrying one setting,
-`notify-on-command-finish = unfocused`, which is what lights the dot for a
-plain shell - a build or a test run finishing in a tab you aren't looking at.
-Edit or delete the line like any other; a config file that already exists is
-never rewritten, except for the one `theme =` line that **Gutter > Choose
-Theme...** saves. That picker previews the bundled themes live as you move
-through them and changes nothing until Save. `CONFIG.md` is the short list of settings worth knowing about
-- ghostty's own reference has several hundred. Ghostty's own config files are never loaded - to inherit
-them, add `config-file = ?~/.config/ghostty/config` (or the path to
-`com.mitchellh.ghostty/config.ghostty`; `?` means "skip if missing").
+- **A sidebar instead of a tab bar.** Each session gets a row with its folder
+  and git branch, so ten sessions are as easy to tell apart as two. Switch with
+  ⌘1–9 or ⌃Tab, drag rows to reorder, and hide the sidebar with ⌘B.
+- **One window per project.** ⌘N opens a window with its own sessions.
+  **File > Rename Window...** names it, and the name shows in the title bar,
+  the Window menu and the Dock's window list.
 
-Launchers - the tools `cmd-shift-t` can start a request with - live in a
-separate file, `~/.config/gutter/launchers`, because libghostty parses the
-config above and rejects keys it doesn't know:
+**Knowing when to look**
+
+- **A dot when a session needs you.** Claude Code handing the turn back, a
+  bell, or a build finishing in a session you aren't looking at lights a dot
+  on its row. `DESIGN.md` lists exactly what does and doesn't.
+- **A count on the Dock icon**, so you see it without switching to Gutter.
+  **View > Next Session Needing Attention** jumps to the next one.
+
+**Working with agents**
+
+- **New request** (⌘⇧T): pick a folder and a tool such as `claude`, type a
+  prompt, and it runs in a new background session while you keep working.
+- **See what changed** (⌃⇧G): a side-by-side diff of the repo. Show what isn't
+  committed yet, or everything a pull request from this branch would show.
+
+**Terminal**
+
+- **Ghostty underneath.** Metal rendering, ghostty's config syntax, its bundled
+  themes, and find in scrollback.
+- **Split panes inside a session.** ⌘D splits right, ⌘⇧D splits down.
+- **Live theme picker.** **Gutter > Choose Theme...** previews each theme as
+  you move through the list.
+
+## Why Gutter
+
+Ghostty is fast but has no vertical tabs. iTerm2 has vertical tabs but isn't
+Ghostty. Gutter is the overlap.
+
+Ghostty won't add them: it declined vertical tabs in
+[discussion #2549](https://github.com/ghostty-org/ghostty/discussions/2549),
+closed on 2026-03-13, because custom tab bars conflict with its preference for
+native platform UI.
+
+Gutter is not a fork and not a full-featured terminal. It is a window, a
+sidebar of sessions, and one pane tree per window, plus a few tools for
+running agents. For everything else, use Ghostty or iTerm2. `DESIGN.md`
+records why Gutter is shaped this way and what was deliberately left out.
+
+## Install
+
+Gutter is built from source. You need:
+
+- An Apple Silicon Mac with macOS 13 or later (built and tested on 26.x).
+- Xcode at `/Applications/Xcode.app` with the **Metal Toolchain** component
+  (**Xcode > Settings > Components**).
+
+The repo carries a prebuilt libghostty in `deps/`, so you don't need a ghostty
+checkout or Zig.
+
+```sh
+./build.sh              # compile, about 30 s
+./make-app.sh           # assemble dist/Gutter.app
+open dist/Gutter.app
+```
+
+`./make-app.sh --install` also copies the app to `/Applications`. To pick up a
+new build, quit the running copy and open it again.
+
+Always run the `.app`. The bare `bin/Gutter` binary crashes on launch.
+
+To keep macOS privacy grants such as Full Disk Access across rebuilds, set up a
+signing certificate once. See [Signing certificate](#signing-certificate).
+
+## Configuration
+
+### Config file
+
+Gutter reads `~/.config/gutter/config`, in ghostty's config syntax: theme, font
+size, working directory and keybinds. ⌘, opens it and ⌘⇧, reloads it.
+
+- **First launch** writes a short commented template with one setting,
+  `notify-on-command-finish = unfocused`. That line lights the dot when a
+  command finishes in a session you aren't looking at. Edit or delete it.
+- **Gutter never rewrites your config**, except for the one `theme =` line that
+  **Gutter > Choose Theme...** saves. The picker changes nothing until you
+  click Save.
+- **Ghostty's own config is not loaded.** To inherit it, add
+  `config-file = ?~/.config/ghostty/config`. The `?` means "skip if missing".
+
+`CONFIG.md` lists the settings worth knowing about. Ghostty's own reference has
+several hundred.
+
+### Launchers
+
+Launchers are the tools New Request (⌘⇧T) can start. They live in their own
+file, `~/.config/gutter/launchers`, because libghostty rejects keys it doesn't
+know:
 
 ```
 launcher = claude
@@ -46,36 +114,129 @@ launcher-for ~/projects = pclaude
 folder = ~/src/screenings_app
 ```
 
-One command per line, first is the default; `launcher-for` gives a folder tree
-its own, longest path winning. Commands are typed into the session's shell, so
-aliases work. The sheet's folder list is the folders your tabs are open in plus
-any `folder` lines.
+- **`launcher`**: one command per line. The first is the default.
+- **`launcher-for`**: gives a folder tree its own default. The longest matching
+  path wins.
+- **`folder`**: adds a folder to the sheet's list, next to the folders your
+  sessions are already in.
 
-See `BUILDING.html` for the rendered setup notes - prerequisites, build steps, layout, gotchas.
+Commands are typed into the session's shell, so aliases work.
 
-## Why this exists
+## Keyboard shortcuts
 
-Ghostty is fast and has no vertical tabs. iTerm2 has vertical tabs and is not
-Ghostty. Gutter is the overlap: ghostty's core and renderer, driven by a sidebar
-of full-height sessions instead of a horizontal tab bar.
+⌘⇧/ (**Help > Keyboard Shortcuts**) shows the same list in the app.
 
-That gap is permanent, not pending. Ghostty declined vertical tabs in
-[discussion #2549](https://github.com/ghostty-org/ghostty/discussions/2549),
-closed and locked on 2026-03-13 - custom tab bars conflict with ghostty's
-preference for native platform UI, and the maintainer points people at forks
-instead.
+### Windows and sessions
 
-It also began as a question: can a separate app embed libghostty and drive it?
-Yes, in a few thousand lines of AppKit over ghostty's wrapper. Gutter is that
-experiment.
+| Keys | Action |
+|---|---|
+| ⌘N | New window, starting in the current session's folder. Also on the Dock icon's right-click menu |
+| ⌘⇧W | Close the window and its sessions, after asking |
+| ⌥⌘⇧W | Close all windows, after asking |
+| ⌘Q | Quit, after asking |
+| ⌘T | New session, in the current session's folder |
+| ⌘W | Close the pane. Closing a session's last pane closes the session |
+| ⌥⌘W | Close the whole session, however many panes it has |
+| ⌘⇧T | New request: pick a folder and a tool, type a prompt (⇧Return for a new line), and run it in a new background session |
+| ⌘⇧R | Rename the session |
+| ⌘1–9 | Go to session N |
+| ⌃Tab / ⌃⇧Tab | Next / previous session |
+| ⌘B | Show or hide the sidebar |
+| ⌃⇧G | Show changes (side-by-side diff) |
+| ⌘, / ⌘⇧, | Open / reload the config |
+| ⌘⇧/ | Keyboard shortcuts |
 
-It is not a fork and not a full terminal: a sidebar of sessions and one live
-pane tree per window. For a full-featured terminal, use Ghostty or iTerm2.
+⌘B and ⌃⇧G also have toolbar buttons. The toolbar is hidden in fullscreen, so
+use the keys or the **View** menu there.
 
-`DESIGN.md` records why Gutter is shaped this way and what was deliberately
-left out - read it before proposing a feature.
+### Panes
 
-## Architecture
+| Keys | Action |
+|---|---|
+| ⌘D / ⌘⇧D | Split right / down |
+| ⌘] / ⌘[ | Next / previous pane |
+| ⌥⌘ + arrow | Focus the pane in that direction |
+| ⌃⌘ + arrow | Resize the pane |
+| ⌘⇧Return | Zoom the pane, and back |
+| ⌃⌘= | Make all panes the same size |
+
+### Text
+
+| Keys | Action |
+|---|---|
+| ⌘C / ⌘V / ⌘A | Copy / paste / select all |
+| ⌘F | Find in scrollback |
+| ⌘G / ⌘⇧G | Next / previous match |
+| ⌘E | Find the selected text |
+
+### Mouse
+
+- **Sidebar:** drag a row to reorder sessions (⌘1–9 follow the new order).
+  Double-click a row to rename it. Hover a row, or swipe it left, for a close
+  button.
+- **Links:** ⌘-hover underlines a URL and ⌘-click opens it. Inside a program
+  that captures the mouse, such as Claude Code or vim, hold ⌘⇧ instead. This
+  matches Ghostty.
+
+## Changes window
+
+⌃⇧G opens a side-by-side, whole-file diff of the current session's repo. A
+toggle in its header picks what you compare against:
+
+- **Uncommitted**: `HEAD` against your working tree. What isn't committed yet.
+- **Branch**: what a pull request would show. The merge base with the target
+  branch against your working tree, so every commit on this branch plus
+  anything still uncommitted.
+
+In Branch mode, a menu next to the toggle picks the target branch: the default
+first, then the rest, most recently committed first. Gutter remembers your
+choice for each repo. The default comes from `origin/HEAD`, falling back to
+`origin/main`, `origin/master`, `main` and `master`; a remembered branch that
+was deleted falls back to it too. `DESIGN.md` explains why Branch mode uses the
+merge base rather than the branch tip. The file list matches
+GitHub's "Files changed", plus your uncommitted work, which the header counts
+separately.
+
+The window never reloads by itself, so you never lose your place. When the repo
+changes underneath it, the Refresh button gets a dot.
+
+| Keys | Action |
+|---|---|
+| ⌘] / ⌘[ | Next / previous change |
+| ⌘R | Refresh |
+| ⌘F | Find in the file on screen |
+| ⌘G or Return / ⌘⇧G or ⇧Return | Next / previous match |
+| ⌘E | Find the selected text |
+| Esc | Close the find bar |
+| ⌘W | Close the window |
+
+Find searches one side: the one you last clicked, or the one picked in the find
+bar, marked with an accent border. Matches are highlighted and marked on the
+change map, and the search stays while you move between files.
+
+## Troubleshooting
+
+- **Config errors at launch.** Watch the log for `config error:` lines:
+  `/usr/bin/log stream --style compact --predicate 'process == "Gutter"'`.
+  "Theme not found" usually means the bundled themes are missing. Run
+  `./make-app.sh` again.
+- **Gutter quits when the last session closes.** This is intentional, and
+  matches Terminal.app.
+- **No session titles.** Titles come from the shell. A new shell shows a
+  placeholder until its first prompt draws.
+
+## Development
+
+`DESIGN.md` holds the design decisions, including what was declined. Read it
+before proposing a feature.
+
+### Architecture
+
+Every pane is a real libghostty surface: Metal rendering, PTY handling, VT
+emulation, input and IME, and config loading all come from ghostty's core and
+its own Swift wrapper. Gutter is the window shell, sidebar and session manager
+in AppKit, over a pane tree in ghostty's own SwiftUI. There is no Xcode
+project: everything builds with `swiftc` and scripts.
 
 Runtime ownership, top to bottom:
 
@@ -92,25 +253,25 @@ main.swift            process setup: GHOSTTY_RESOURCES_DIR, ghostty_init, keybin
             └─ SessionTreeView (SwiftUI)     ghostty's SplitView + InspectableSurface
 ```
 
-`SessionManager` is the model: it owns sessions and holds no AppKit policy. There is
-one per window - a window is a whole independent sidebar - and `AppDelegate.front` (the
-window that was last key) is what the menu bar acts on.
-`MainWindowController` owns every session-to-UI reaction - sidebar reload, showing the
-selected surface, handing it first responder. `GhosttyBridge` translates libghostty
-notifications into session calls; it is the file to audit for API drift when ghostty is
-updated, and with more than one window it is also the router - libghostty's
-notifications are app-wide, so each one is applied to the window owning the surface it
-names. A `Session` is a tree of `Pane`s - each a live `Ghostty.SurfaceView` plus its
-own state (title, activity dot, progress spinner) - and the row shows a fold of them:
-the focused pane's title, but attention OR-ed across all of them, so an agent handing
-back in a pane you aren't looking at still lights the dot.
+- **`SessionManager`** is the model. It owns the sessions and holds no AppKit
+  policy. There is one per window, and `AppDelegate.front` (the window that was
+  last key) is the one the menu bar acts on.
+- **`MainWindowController`** owns every session-to-UI reaction: reloading the
+  sidebar, showing the selected surface, giving it first responder.
+- **`GhosttyBridge`** turns libghostty notifications into session calls. Audit
+  it for API drift when ghostty is updated. libghostty's notifications are
+  app-wide, so it also routes each one to the window that owns the surface.
+- **A `Session` is a tree of `Pane`s.** Each pane is a live
+  `Ghostty.SurfaceView` with its own title, activity dot and progress spinner.
+  The sidebar row shows the focused pane's title, but ORs attention across all
+  panes, so an agent finishing in a pane you aren't looking at still lights the
+  dot.
+- **The terminal area is ghostty's own SwiftUI.** `SessionTreeView` is a
+  near-copy of upstream's `TerminalSplitTreeView`. Everything inside a pane
+  (find bar, dimming, resize overlay, pointer cursor, sizing) comes from the
+  vendored views. See `DESIGN.md`, "The terminal area is ghostty's, not ours".
 
-The terminal area itself is ghostty's own SwiftUI, not Gutter's: `SessionTreeView` is a
-near-copy of upstream's `TerminalSplitTreeView`, and everything inside a pane - find bar,
-dimming, resize overlay, pointer cursor, sizing - comes from the vendored views. See
-DESIGN.md, "The terminal area is ghostty's, not ours".
-
-## Layout
+### Layout
 
 | Path | Purpose |
 |---|---|
@@ -118,94 +279,77 @@ DESIGN.md, "The terminal area is ghostty's, not ours".
 | `Sources/Shims.swift` | Stub types the vendored wrapper `as?`-casts to (no-op in this app) |
 | `Sources/Compat.swift` | Shims for Swift-overlay APIs missing from the CommandLineTools toolchain |
 | `Vendor/` | Swift wrapper copied from the ghostty checkout by `vendor.sh` (SurfaceView with input/IME, config, app runtime) |
-| `deps/` | Self-contained build inputs: stripped static `libghostty.a`, C headers/modulemap, resources (themes, terminfo) - committed, so no ghostty checkout is needed to build |
-| `vendor.sh` | Re-copies + patches the wrapper (patches live here, reproducible) |
-| `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` (bundles themes + shell integration + terminfo) |
-| `Info.plist` | Bundle metadata (bundle id, min macOS 13) |
+| `deps/` | Self-contained build inputs: stripped static `libghostty.a`, C headers/modulemap, resources (themes, terminfo). Committed, so no ghostty checkout is needed to build |
+| `vendor.sh` | Re-copies and patches the wrapper (the patches live here, reproducibly) |
+| `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` (bundles themes, shell integration and terminfo) |
+| `Info.plist` | Bundle metadata (bundle id, minimum macOS 13) |
 | `DESIGN.md` | Why Gutter is shaped this way; declined and deferred features |
 | `CONFIG.md` | The settings worth setting, and the keys Gutter claims from the core |
+| `media/` | The demo video at the top of this file |
 
-## Requirements
+### Working on the code
 
-- macOS 13+ (built and tested on 26.x, arm64)
-- Xcode installed at `/Applications/Xcode.app` with the **Metal Toolchain**
-  component (Xcode Settings -> Components)
+- **App code:** edit `Sources/`, then `./build.sh && ./make-app.sh`. There is
+  no Xcode project.
+- **Fast syntax check:** run the `swiftc -typecheck` command inside `build.sh`
+  by hand, or just run `./build.sh`, which is fast once the archives are
+  repaired.
+- **Linking a ghostty checkout:** `build.sh` prefers the committed `deps/`.
+  Setting `GHOSTTY=<checkout>` links that checkout's GhosttyKit.xcframework
+  instead.
+- **Runtime logs:** ghostty logs through `os.Logger`. Config errors, renderer
+  health and spawn failures all show up in
+  `/usr/bin/log stream --style compact --predicate 'process == "Gutter"'`.
+- **Why the bare binary crashes:** ghostty's logger force-unwraps
+  `Bundle.main.bundleIdentifier`, which only exists inside the `.app`.
+- **Adding a keybind** means editing three places by hand: `MainMenu.swift`
+  (the menu item), `ShortcutsWindowController.swift` (the ⌘⇧/ panel) and the
+  tables in [Keyboard shortcuts](#keyboard-shortcuts). Core keybind overrides
+  also go in the table of claimed keys in `CONFIG.md`.
+- **Pane keys** are ghostty's own defaults, claimed by the core rather than
+  bound here. Most also have a menu item, so they work when no pane has focus.
+  The two arrow sets (focus and resize) are core-only: eight more menu items
+  would swamp the View menu.
+- **Keybind overrides** (`cmd+t=new_tab`, `cmd+9=goto_tab:9`) are injected from
+  `main.swift` through a temp config file and
+  `Ghostty.Config.embedderConfigFile`. The core has no default `cmd+t` on macOS
+  (upstream handles it in its app menu), and `goto_tab` only defaults to 1–8.
+- **Don't override `command`** in the config overrides: repeated `command` keys
+  append to the default argv instead of replacing it.
+- **⌘] and ⌘[** mean "next pane" in the main window and "next change" in the
+  changes window. They don't collide: in the changes window they are that
+  window's own button key equivalents, not menu items or core keybinds.
 
-That's it - `deps/` carries the vendored libghostty, headers and resources, so
-cloning the repo is enough to build. A ghostty checkout + Zig 0.15.2 are only
-needed when **updating** ghostty (see "Updating ghostty").
+### Signing certificate
 
-## Build & run
-
-```sh
-cd ak/gutter
-./build.sh      # compile app + vendored wrapper, link libghostty
-./make-app.sh   # assemble dist/Gutter.app (bundles themes + shell integration + terminfo)
-open dist/Gutter.app
-```
-
-`./make-app.sh --install` also copies the bundle to `/Applications/Gutter.app`
-and registers it with Launch Services. Quit a running installed copy and
-relaunch it to pick up the new build.
-
-`build.sh` prefers the committed `deps/` (stripped static `libghostty` +
-headers + resources). Setting `GHOSTTY=<checkout>` overrides it and links the
-checkout's GhosttyKit.xcframework instead (with the archive-repair workaround
-below if needed). Always run the app from the bundled `.app` - the bare binary
-crashes because ghostty's logger force-unwraps
-`Bundle.main.bundleIdentifier`.
-
-### Signing certificate (once per machine)
-
-Without one, `make-app.sh` ad-hoc signs, and macOS drops privacy grants (Full
-Disk Access, Downloads, Documents, ...) on every rebuild. They still show ON in
-System Settings, but they are refused. A self-signed certificate keeps the
-signature the same across builds:
+Without one, `make-app.sh` signs ad hoc, and macOS silently refuses privacy
+grants (Full Disk Access, Downloads, Documents and so on) after every rebuild.
+They still show as on in System Settings. A self-signed certificate keeps the
+signature the same across builds. Set it up once per Mac:
 
 1. Open Keychain Access. On recent macOS it isn't in `/Applications`:
    `open "/System/Library/CoreServices/Applications/Keychain Access.app"`.
-2. **Keychain Access -> Certificate Assistant -> Create a Certificate...**
-3. Name `Gutter Dev` (exactly; `make-app.sh` finds it by name), Identity Type
-   **Self Signed Root**, Certificate Type **Code Signing**. Create, then Done.
-4. Check: `security find-identity -p codesigning` lists `"Gutter Dev"`.
+2. Choose **Keychain Access > Certificate Assistant > Create a Certificate...**
+3. Name it `Gutter Dev` exactly (`make-app.sh` finds it by name). Set Identity
+   Type to **Self Signed Root** and Certificate Type to **Code Signing**. Click
+   Create, then Done.
+4. Check that `security find-identity -p codesigning` lists `"Gutter Dev"`.
    `CSSMERR_TP_NOT_TRUSTED` next to it is expected and harmless.
-5. `./make-app.sh` now prints `signed with "Gutter Dev"`. If macOS asks
+5. Run `./make-app.sh`. It now prints `signed with "Gutter Dev"`. If macOS asks
    whether `codesign` may use the key, choose **Always Allow**.
    `codesign -dvv dist/Gutter.app 2>&1 | grep Authority` should show
    `Authority=Gutter Dev`.
-6. Grant Full Disk Access one last time: System Settings -> Privacy & Security
-   -> Full Disk Access, remove Gutter, add `dist/Gutter.app`, then quit with
-   `cmd-q` and relaunch. Later rebuilds keep the grant.
+6. Grant Full Disk Access one last time: in **System Settings > Privacy &
+   Security > Full Disk Access**, remove Gutter, add `dist/Gutter.app`, then
+   quit with ⌘Q and reopen it. Later rebuilds keep the grant.
 
-A different name works with `LOCAL_SIGN_NAME=...`. `SIGN_ID` (a Developer ID
-identity) still wins over both, for builds other people run.
+To use a different name, set `LOCAL_SIGN_NAME=...`. A Developer ID identity in
+`SIGN_ID` takes priority over both, for builds other people run.
 
-## Developing
+### Updating ghostty
 
-- **App code**: edit `Sources/`, then `./build.sh && ./make-app.sh`. There is no
-  Xcode project; iterate with the scripts.
-- **Fast syntax check** (no linking): run the `swiftc -typecheck` command inside
-  `build.sh` by hand, or just run `./build.sh` - it is fast once the archives are
-  repaired.
-- **Vendored wrapper**: to pull in ghostty changes, re-run `./vendor.sh`. The
-  patches applied on top of upstream (missing imports, a ForEach rewrite, the
-  `goto_tab` performability guard, an embedder config-file hook) are asserted
-  with occurrence counts - they fail loudly if upstream drifts, and then need a
-  look.
-- **Runtime logs**: ghostty logs through os.Logger. Watch with
-  `/usr/bin/log stream --style compact --predicate 'process == "Gutter"'`
-  (config errors, renderer health, spawn failures all show up there).
-- **Keybind overrides** (`cmd+t=new_tab`, `cmd+9=goto_tab:9`) are injected via a
-  temp config file from `main.swift` through `Ghostty.Config.embedderConfigFile`.
-  The core has no default `cmd+t` on macOS (upstream handles it in their app
-  menu), and goto_tab only defaults to 1-8.
-- Don't override `command` in config overrides: repeated `command` keys append
-  to the default argv instead of replacing it.
-
-## Updating ghostty (rare)
-
-Only needed when you want a newer ghostty core. Requires a ghostty checkout
-and Zig 0.15.2:
+This is rare: only for a newer ghostty core. It needs a ghostty checkout and
+Zig 0.15.2:
 
 ```sh
 cd <ghostty-checkout>
@@ -215,129 +359,40 @@ PATH="<tooling-dir>/shim-bin:$PATH" \
 ```
 
 The `shim-bin` xcrun wrapper points zig's SDK detection at a shadow SDK
-(`<tooling-dir>/MacOSX26.5-arm64.sdk`) whose tbds declare
-`arm64-macos` - macOS 26 SDKs dropped it and zig 0.15.2's linker requires it.
-Then refresh the vendored inputs in this repo:
+(`<tooling-dir>/MacOSX26.5-arm64.sdk`) whose tbds declare `arm64-macos`: macOS
+26 SDKs dropped it, and zig 0.15.2's linker requires it. Then refresh the
+vendored inputs in this repo:
 
-1. `./vendor.sh` - refresh the Swift wrapper (patch assertions fail loudly on
-   upstream drift)
+1. Run `./vendor.sh` to refresh the Swift wrapper. Its patches (missing
+   imports, a ForEach rewrite, the `goto_tab` performability guard, an embedder
+   config-file hook) are asserted with occurrence counts, so they fail loudly
+   if upstream drifts.
 2. Refresh `deps/`:
-   - copy `include/` and `zig-out/share/{ghostty,terminfo}` from the checkout
-   - rebuild the static lib: extract every `lib*.a` from the checkout's
-     `.zig-cache/o` (zig's archives have members Xcode's libtool drops for
-     missing 8-byte padding - rebuild each with Apple's `ar` first), run
-     `strip -S` on the objects (drops debug info: 135M -> 23M), then
-     `ar rcs deps/lib/libghostty.a *.o`
-3. `./build.sh` with `GHOSTTY=<checkout>` unset falls back to `deps/` - verify,
-   commit `Vendor/` + `deps/`.
+   - Copy `include/` and `zig-out/share/{ghostty,terminfo}` from the checkout.
+   - Rebuild the static library. Extract every `lib*.a` from the checkout's
+     `.zig-cache/o`, rebuilding each with Apple's `ar` first (zig's archives
+     have members that Xcode's libtool drops for missing 8-byte padding). Run
+     `strip -S` on the objects (dropping debug info takes it from 135 MB to
+     23 MB), then `ar rcs deps/lib/libghostty.a *.o`.
+3. Run `./build.sh` with `GHOSTTY` unset so it uses `deps/`. Check the app, then
+   commit `Vendor/` and `deps/`.
 
-## Sharing the binary
+### Sharing the binary
 
 `dist/Gutter.app` is self-contained (static libghostty, themes, shell
-integration) - just zip it:
+integration), so you can zip it:
 
 ```sh
-cd gutter/dist && zip -r Gutter.zip Gutter.app
+cd dist && zip -r Gutter.zip Gutter.app
 ```
 
-Recipients should know:
+Tell recipients:
 
-- **arm64 (Apple Silicon) only**, macOS 13+.
-- Without `SIGN_ID` the app has no developer certificate: it is ad-hoc signed,
-  or signed with your local self-signed `Gutter Dev` certificate if you made
-  one (BUILDING.html, Signing). On another Mac,
-  Gatekeeper will block the first launch: right-click -> Open, or clear the
-  quarantine flag with `xattr -cr Gutter.app`.
-- It reads `~/.config/gutter/config`, not any Ghostty config; on a fresh
-  machine that file is created empty, so it runs with ghostty's default theme.
-- The embedded libghostty is MIT-licensed (c) Mitchell Hashimoto /
-  ghostty contributors; keep that attribution if you redistribute.
+- **It runs on Apple Silicon only**, macOS 13 or later.
+- **Gatekeeper blocks the first launch** unless it was signed with a Developer
+  ID (`SIGN_ID`). Right-click the app and choose Open, or run
+  `xattr -cr Gutter.app`.
+- **It reads `~/.config/gutter/config`**, not their Ghostty config.
 
-## Keybinds
-
-Every one of these also appears in the in-app list (Help -> Keyboard
-Shortcuts, `cmd-shift-/`), which is built by hand in
-`ShortcutsWindowController.swift`. Adding a keybind means editing three places:
-`MainMenu.swift`, that list, and this table.
-
-The pane keys are ghostty's own defaults, claimed by the core rather than bound
-here. Most carry a matching menu item so they are discoverable and still work
-when no surface has focus; the two arrow sets (focus and resize) are core-only -
-eight menu items for them would swamp the View menu - so they appear in the ⌘?
-panel and this table but not in the menu bar.
-
-| Keys | Action |
-|---|---|
-| `cmd-n` | New window - its own sidebar, its own sessions, starting in the current session's directory. Also on the Dock icon's right-click menu, which is the way to open one without switching to Gutter first |
-| `cmd-shift-w` | Close the window, sessions and all, after asking. `alt-cmd-shift-w` closes them all (ghostty's `close_all_windows`), and `cmd-q` quits - both ask first too |
-| `cmd-t` / `cmd-w` | New tab / close pane (ghostty core keybinds -> notifications -> sidebar). A new tab opens in the current tab's directory, per ghostty's `tab-inherit-working-directory`. Closing a session's last pane closes the session |
-| `alt-cmd-w` | Close the whole session, however many panes it has (ghostty's `close_tab`) |
-| `cmd-shift-t` | New request: pick a folder and a tool, type a prompt (`shift-return` for a new line), run it in a new background tab |
-| `cmd-shift-r` | Rename tab |
-| `cmd-1..9` | Select tab N |
-| `ctrl-tab` / `ctrl-shift-tab` | Next / previous tab |
-| `cmd-d` / `cmd-shift-d` | Split the session's terminal area right / down |
-| `cmd-]` / `cmd-[` | Next / previous pane |
-| `alt-cmd-arrows` | Focus the pane in that direction |
-| `ctrl-cmd-arrows` | Resize the pane |
-| `cmd-shift-enter` | Zoom the pane, and back |
-| `ctrl-cmd-=` | Equalize panes |
-| `cmd-b` or toolbar button | Toggle sidebar. No toolbar in fullscreen: the key or View > Toggle Sidebar |
-| `ctrl-shift-g` or toolbar button | Show changes (side-by-side diff). No toolbar in fullscreen: the key or View > Show Changes |
-| `cmd-c` / `cmd-v` / `cmd-a` | Copy / paste / select all (Edit menu items on the responder chain - the ghostty core binds none of these) |
-| `cmd-f` / `cmd-g` / `cmd-shift-g` | Find in scrollback / next / previous |
-| `cmd-e` | Use selection for find |
-| `cmd-,` / `cmd-shift-,` | Open / reload the Gutter config (`~/.config/gutter/config`) |
-| `cmd-shift-/` | Keyboard shortcuts |
-
-In the changes window: `cmd-]` / `cmd-[` next and previous change, `cmd-r`
-refresh, `cmd-w` close. `cmd-f` opens a find bar over the file on screen: it
-searches one pane - the one you last clicked into, or the one picked in the
-bar's toggle, marked with an accent border - highlights every match, and marks
-them on the change map.
-`cmd-g` / `return` step to the next match, `cmd-shift-g` / `shift-return` back,
-`cmd-e` searches for the selection, and `esc` closes the bar. The query stays
-while you move between files. `cmd-]` and `cmd-[` are the same keys that move between
-panes in the main window; they don't collide, because in the changes window
-they are that window's own button key equivalents, not menu items or core
-keybinds. The Refresh button takes a dot when the repo changes
-underneath it - a file written, a commit made - and `cmd-r` clears it. The
-window never reloads itself: that would lose your place in the file you are
-reading. A toggle in its header picks what the left pane is
-compared against:
-
-- **Uncommitted** - `HEAD` vs the worktree. What isn't committed yet.
-- **Branch** - what a pull request would show. The merge base with another
-  branch vs the worktree: every commit on this branch, plus whatever is still
-  dirty.
-
-Branch mode puts a popup beside the toggle for which branch the PR targets: the
-default first, then every other branch, most recently committed to first. Pick
-one for a stacked PR or a release branch, and it is remembered for that repo.
-The file list matches GitHub's "Files changed" exactly, except that Gutter also
-shows work you haven't committed - the header counts those separately. The default is read from `origin/HEAD`, falling back to `origin/main`,
-`origin/master`, `main`, `master`; a remembered branch that has since been
-deleted falls back to it too. `DESIGN.md` explains why branch mode uses the
-merge base rather than the branch tip.
-
-Mouse in the sidebar: drag a row to reorder sessions (`cmd-1..9` follow the new
-order), hover a row for a close button in place of its activity dot, swipe left
-for the same, double-click to rename.
-
-Links belong to ghostty, not to this table: `cmd`-hover underlines a URL and
-`cmd`-click opens it. Inside a program that captures the mouse (Claude Code,
-vim) that does nothing - the program owns the pointer, which is also why it
-turns into an arrow there. Add `shift`: `shift-cmd`-hover hands the mouse back
-to the terminal (`mouse-shift-capture`, off by default) and the link lights up
-again. Upstream Ghostty behaves identically.
-
-## Troubleshooting
-
-- **Config errors at launch**: check the unified log (command above) for
-  `config error:` lines. Theme not found usually means the bundled themes are
-  missing from the app's `Contents/Resources/ghostty/themes` - re-run
-  `make-app.sh`.
-- **App quits when the last tab closes**: intentional (matches Terminal.app
-  behavior).
-- **No tab titles**: titles come from the shell (your zsh config reports cwd);
-  a fresh shell shows the ghost fallback until the first prompt draws.
+The embedded libghostty is MIT-licensed, © Mitchell Hashimoto and the ghostty
+contributors. Keep that attribution if you redistribute.
