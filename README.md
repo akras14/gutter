@@ -3,7 +3,9 @@
 A small native macOS terminal app with a vertical tab sidebar, embedding
 [libghostty](https://ghostty.org) (ghostty **v1.3.1**) as a static library.
 
-![Gutter: sidebar of sessions on the left, live terminal surface on the right](assets/screenshot.jpg)
+![Gutter in 20 seconds: the session sidebar, the attention dot, splits, the side-by-side diff and themes](media/gutter-demo.gif)
+
+[Watch it as an MP4](media/gutter-demo.mp4).
 
 A window is a collapsible sidebar of sessions and the selected session's panes;
 `⌘N` opens another, with its own sessions. **File > Rename Window...** names
