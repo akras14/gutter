@@ -63,23 +63,27 @@ been running Gutter for a while.
 
 ### `copy-on-select`
 
-Default `true`, which on macOS is not what it sounds like: it copies to a
-private pasteboard that only middle-click paste reads, and ⌘V sees nothing.
+Default `none` on macOS: selecting text copies nothing until you press ⌘C.
 
 ```
 copy-on-select = clipboard
 ```
 
-is the one that also writes the system clipboard, so any selection - drag,
-double-click a word, triple-click a line - is ready to paste. The selection
-stays visible after copying.
+writes the system clipboard, so any selection - drag, double-click a word,
+triple-click a line - is ready to paste with ⌘V. The selection stays visible
+after copying. `both` does the same on macOS (the second clipboard is a Linux
+one), and the old `true` still works as an alias for `clipboard`.
+
+Before ghostty 1.4 the default was `true`, which copied to a private
+pasteboard only middle-click paste read - so a selection looked copied and ⌘V
+pasted something older.
 
 The cost is that selecting text replaces whatever was on your clipboard, which
 is why ghostty doesn't ship this as the macOS default.
 
 ### `theme`, `font-family`, `font-size`
 
-463 themes ship inside the app. **Gutter > Choose Theme...** lists them with a
+819 themes ship inside the app. **Gutter > Choose Theme...** lists them with a
 colour swatch each and previews the one you select in every window; Save
 writes `theme = <name>` here, replacing the last `theme` line, and Cancel puts
 the old one back. To see the names without it:
@@ -116,8 +120,8 @@ Not a config setting, and not a Gutter bug - but this is where you'll look.
 On the alternate screen (the one full-screen programs draw on), ghostty turns
 the scroll wheel into up/down arrow keys. That is what scrolls `less`, `man` and
 `vim`; in `watch`, which never reads input, the terminal echoes the keys
-instead. iTerm2 does the same by default. ghostty 1.3.1 has no config key for
-it, so turn it off from your shell with `~/.zshrc`:
+instead. iTerm2 does the same by default. ghostty (as of 1.4.0) has no config
+key for it, so turn it off from your shell with `~/.zshrc`:
 
 ```sh
 printf '\e[?1007l'   # alternate screen: scroll wheel no longer sends arrow keys

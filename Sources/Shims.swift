@@ -3,7 +3,7 @@ import GhosttyKit
 
 // Vendored Ghostty sources cast window controllers and windows to the types
 // below (their app-target classes). Every member here mirrors a call site in
-// Ghostty.App.swift (v1.3.1).
+// Ghostty.App.swift (v1.4.0).
 //
 // `TerminalWindow` and the two below it are compile-only: Gutter's window is
 // not one, so those casts never match and their action paths stay no-ops.
@@ -26,6 +26,13 @@ class BaseTerminalController: NSWindowController {
     func toggleBackgroundOpacity() {}
     func promptTabTitle() {}
     @IBAction func changeTabTitle(_ sender: Any) {}
+}
+
+/// Compile-only: Ghostty.App.swift casts to it for CSI 8 window resize
+/// (`vt-window-resize-allowed`, off by default). Gutter's window controller is
+/// not one, so the request is reported as not performed.
+class TerminalController: BaseTerminalController {
+    func resizeWindow(_ surfaceView: Ghostty.SurfaceView, to size: NSSize) -> Bool { false }
 }
 
 class TerminalWindow: NSWindow {

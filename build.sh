@@ -5,7 +5,7 @@
 # Link source, in order of preference:
 #   1. deps/lib/libghostty.a  - vendored, stripped, committed to the repo
 #                               (self-contained; the default)
-#   2. a ghostty checkout     - $GHOSTTY if set, else $HOME/projects/ak/ghostty
+#   2. a ghostty checkout     - $GHOSTTY if set, else update-ghostty.sh's cache
 #                               (repairs zig's misaligned archives if needed)
 # Run make-app.sh to get a launchable .app (required: the wrapper's logger
 # force-unwraps Bundle.main.bundleIdentifier, so the bare binary will crash).
@@ -25,9 +25,10 @@ if [ -z "${GHOSTTY:-}" ] && [ -f deps/lib/libghostty.a ]; then
     LIBS="$PWD/deps/lib/libghostty.a"
     LINKDIR="$PWD/deps/lib"
 else
-    GHOSTTY=${GHOSTTY:-$HOME/projects/ak/ghostty}
+    GHOSTTY=${GHOSTTY:-${GUTTER_GHOSTTY_CACHE:-$HOME/.cache/gutter-ghostty}/ghostty}
     KIT="$GHOSTTY/macos/GhosttyKit.xcframework/macos-arm64"
-    LIB="$KIT/libghostty.a"
+    LIB="$KIT/libghostty-internal.a"                 # 1.4+
+    [ -f "$LIB" ] || LIB="$KIT/libghostty.a"
     [ -f "$LIB" ] || LIB="$KIT/libghostty-fat.a"
     [ -f "$LIB" ] || {
         echo "error: deps/lib/libghostty.a not found and no libghostty in $KIT" >&2
@@ -47,7 +48,6 @@ else
     else
         CORE=$(find "$GHOSTTY/.zig-cache/o" -name 'libghostty.a' -size +8M | head -1)
         [ -f "$CORE" ] || { echo "error: core libghostty.a not found in zig-cache" >&2; exit 1; }
-        ZIGAR=${ZIGAR:-$HOME/projects/ak/.tooling/zig-aarch64-macos-0.15.2/zig}
         REPAIRED=bin/repaired
         mkdir -p "$REPAIRED"
         for a in $(find "$GHOSTTY/.zig-cache/o" -name 'lib*.a' ! -name 'libghostty-fat.a'); do

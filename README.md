@@ -279,7 +279,8 @@ main.swift            process setup: GHOSTTY_RESOURCES_DIR, ghostty_init, keybin
 | `Sources/Shims.swift` | Stub types the vendored wrapper `as?`-casts to (no-op in this app) |
 | `Sources/Compat.swift` | Shims for Swift-overlay APIs missing from the CommandLineTools toolchain |
 | `Vendor/` | Swift wrapper copied from the ghostty checkout by `vendor.sh` (SurfaceView with input/IME, config, app runtime) |
-| `deps/` | Self-contained build inputs: stripped static `libghostty.a`, C headers/modulemap, resources (themes, terminfo). Committed, so no ghostty checkout is needed to build |
+| `deps/` | Self-contained build inputs: stripped static `libghostty.a`, C headers/modulemap, resources (themes, terminfo), and `GHOSTTY_VERSION`, the release they came from. Committed, so no ghostty checkout is needed to build |
+| `update-ghostty.sh` | Rebuilds `deps/` and `Vendor/` from the release in `deps/GHOSTTY_VERSION` |
 | `vendor.sh` | Re-copies and patches the wrapper (the patches live here, reproducibly) |
 | `build.sh` / `make-app.sh` | Build the binary / assemble `dist/Gutter.app` (bundles themes, shell integration and terminfo) |
 | `Info.plist` | Bundle metadata (bundle id, minimum macOS 13) |
@@ -348,34 +349,25 @@ To use a different name, set `LOCAL_SIGN_NAME=...`. A Developer ID identity in
 
 ### Updating ghostty
 
-This is rare: only for a newer ghostty core. It needs a ghostty checkout and
-Zig 0.15.2:
+This is rare: only for a newer ghostty core. Gutter currently links ghostty
+v1.4.0. To move to another release:
 
-```sh
-cd <ghostty-checkout>
-git fetch && git checkout <new-tag>
-PATH="<tooling-dir>/shim-bin:$PATH" \
-  zig build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native
-```
+1. Put the new tag and the commit it points at in `deps/GHOSTTY_VERSION`.
+2. Run `./update-ghostty.sh`. It clones that tag and downloads the Zig version
+   the tag asks for (checksum-verified) into `~/.cache/gutter-ghostty`
+   (override with `GUTTER_GHOSTTY_CACHE`), builds libghostty, refreshes
+   `deps/`, and runs `./vendor.sh` to refresh the Swift wrapper.
+3. If `vendor.sh` stops on an `assert`, upstream moved the code one of its
+   patches expects: re-aim the patch, or delete it if upstream now does the
+   same thing. If the compile then can't find a type, the wrapper started
+   using another app-target file - add a `cp` for it to `vendor.sh`.
+4. Run `./build.sh`, audit `GhosttyBridge.swift` against the `ghostty.h`
+   diff, check the app, and commit `deps/`, `Vendor/` and the scripts.
 
-The `shim-bin` xcrun wrapper points zig's SDK detection at a shadow SDK
-(`<tooling-dir>/MacOSX26.5-arm64.sdk`) whose tbds declare `arm64-macos`: macOS
-26 SDKs dropped it, and zig 0.15.2's linker requires it. Then refresh the
-vendored inputs in this repo:
-
-1. Run `./vendor.sh` to refresh the Swift wrapper. Its patches (missing
-   imports, a ForEach rewrite, the `goto_tab` performability guard, an embedder
-   config-file hook) are asserted with occurrence counts, so they fail loudly
-   if upstream drifts.
-2. Refresh `deps/`:
-   - Copy `include/` and `zig-out/share/{ghostty,terminfo}` from the checkout.
-   - Rebuild the static library. Extract every `lib*.a` from the checkout's
-     `.zig-cache/o`, rebuilding each with Apple's `ar` first (zig's archives
-     have members that Xcode's libtool drops for missing 8-byte padding). Run
-     `strip -S` on the objects (dropping debug info takes it from 135 MB to
-     23 MB), then `ar rcs deps/lib/libghostty.a *.o`.
-3. Run `./build.sh` with `GHOSTTY` unset so it uses `deps/`. Check the app, then
-   commit `Vendor/` and `deps/`.
+Full Xcode isn't needed. Without it, the script reuses the compiled shaders
+from the library it replaces (refusing if `shaders.metal` changed) and shims
+the final `xcodebuild -create-xcframework` step. `DESIGN.md`, "Updated by a
+script, not a submodule", has the reasons.
 
 ### Sharing the binary
 

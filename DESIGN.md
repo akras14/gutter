@@ -25,19 +25,42 @@ need an edit there is a fix in the wrong place.
 `Vendor/` is off limits to hand edits, but `vendor.sh` may rewrite what it
 copies. Each patch is a Python block with `assert`s on the text it expects, so
 a ghostty update that moves the code fails the re-vendor loudly instead of
-silently dropping the fix. Five exist today. Keep them few, keep them small,
+silently dropping the fix. Four exist today. Keep them few, keep them small,
 and prefer a subclass in `Sources/` when one will do - see "The right-click
 menu is trimmed, not rebuilt".
 
-One of the five is not an embedder adaptation but a backport. Upstream's
-`CachedValue` (the 500ms cache behind the surface's accessibility methods)
-clears itself from a `Task` while the main thread reads it, and the racing
-release of a Swift `String`'s storage aborts the process. It crashed Gutter on
-2026-09-04 the first time macOS accessibility attached to a surface. The fix is
-upstream's own (ghostty PR #13646, an `NSLock` around the value and the task
-handle), merged after v1.3.1 and so absent from the released `libghostty` this
-links. Drop the patch when the linked release contains it - the `assert`s will
-still pass, so this is the only reminder.
+A backport is allowed too, and the asserts are what retire it. Under 1.3.1 a
+fifth patch carried upstream's `CachedValue` lock (ghostty PR #13646): the
+accessibility cache cleared itself from a `Task` while the main thread read
+it, and crashed Gutter on 2026-09-04. 1.4.0 ships the fix, so the patch's
+`assert` failed on re-vendor and the patch was deleted - which is the point
+of asserting on the text instead of applying blindly.
+
+### Updated by a script, not a submodule
+
+`deps/GHOSTTY_VERSION` pins the ghostty tag and commit; `update-ghostty.sh`
+fetches that tag and the exact Zig it asks for into `~/.cache/gutter-ghostty`,
+builds, refreshes `deps/`, and runs `vendor.sh`. A git submodule was
+considered and declined: nothing builds from ghostty's source (the committed
+`deps/` is the build input), so a submodule would only suggest a dependency
+that isn't there, add a step to every clone, and invite committing a couple
+of GB of zig cache. Before this, the version lived only in comments and the
+toolchain on one machine's disk, and the 1.4.0 update started by
+rediscovering both.
+
+Two Xcode-only steps are worked around rather than required, so the update
+runs with only the command line tools, as Gutter itself does:
+
+- **Shaders.** The renderer embeds a precompiled metallib, and `metal` ships
+  only with Xcode. Without it, the script reuses the metallib embedded in the
+  `libghostty.a` being replaced, and only if `shaders.metal` hashes to
+  `deps/SHADERS_SHA256` - the source that metallib was compiled from. A
+  release that changes the shaders stops the script and asks for Xcode.
+- **The xcframework.** Its last step is `xcodebuild -create-xcframework`. A
+  PATH shim stands in and copies the library to where the xcframework would
+  put it. That library is upstream's own combined archive, which since 1.4.0
+  also localizes compiler-rt's libc symbols so `memcpy` and friends bind to
+  libSystem; hand-merging the zig cache, as 1.3.1 needed, would lose that.
 
 ### Not a product
 
@@ -317,7 +340,9 @@ What was considered instead: opencode's attention notifications (OSC 99 /
 777 desktop notifications) were rejected as the spinner channel - they
 fire only on completion, ghostty 1.3.1's parser drops OSC 99 entirely (no
 parser state), and the vendored wrapper turns what remains into a macOS
-banner, not sidebar state.
+banner, not sidebar state. 1.4.0 parses OSC 99, and OSC 7501 program status,
+but the embedded runtime still discards both (`termio/stream_handler.zig`,
+`terminal/stream.zig`), so neither is a channel yet.
 
 ### The fourth signal is a config line, seeded not forced
 
@@ -383,7 +408,7 @@ narrower than "impossible": libghostty *does* have an output-driven signal,
 wrapper that drops it - `Ghostty.App.swift`'s action switch handles
 `RENDER_INSPECTOR` and `RENDERER_HEALTH` but never `RENDER` - so `Sources/`
 can't see it. Reaching it means another `vendor.sh` patch, in the same style
-as the five already there. The design objection stands on its own: a render
+as the four already there. The design objection stands on its own: a render
 signal fires per frame with no idle/busy distinction, so every row with a
 repainting TUI in it would spin forever. Debouncing it is guessing at
 liveness, which is what a real report exists to avoid.
@@ -714,6 +739,13 @@ code and a duration, nothing else), so "same command" can't be discovered - and
 reading it out of `ps` would mean guessing which process belongs to which
 surface. And once `cmd-t` inherits the working directory, cloning the *folder*
 stopped being worth a button.
+
+The first reason has since weakened. libghostty 1.4.0 added
+`ghostty_surface_foreground_pid` and `ghostty_surface_tty_name`, so the
+foreground process of a surface is now known without guessing. Its argv is
+still a `sysctl` away, and a shell alias like `pclaude` would have expanded
+by then, so "same command" is reachable but not obviously the right command.
+Not revisited; the second reason stands on its own.
 
 What was left is the part a terminal can't guess: which tool. So it's a
 launcher, not a clone.

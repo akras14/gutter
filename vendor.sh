@@ -1,10 +1,10 @@
 #!/bin/bash
 # Copies the Ghostty Swift wrapper (macos/Sources/Ghostty) plus the app-target
 # support files it references from a ghostty checkout into Vendor/.
-# Source must be the same version as the libghostty.a being linked (v1.3.1).
+# Source must be the same version as the libghostty.a being linked (v1.4.0).
 set -euo pipefail
 
-GHOSTTY=${1:-${GHOSTTY:-$HOME/projects/ak/ghostty}}
+GHOSTTY=${1:-${GHOSTTY:-${GUTTER_GHOSTTY_CACHE:-$HOME/.cache/gutter-ghostty}/ghostty}}
 SRC="$GHOSTTY/macos/Sources"
 DEST="$(cd "$(dirname "$0")" && pwd)/Vendor"
 
@@ -13,16 +13,15 @@ DEST="$(cd "$(dirname "$0")" && pwd)/Vendor"
 rm -rf "$DEST"
 mkdir -p "$DEST/Ghostty" "$DEST/Support"
 
-# Core wrapper. SurfaceView_UIKit.swift is excluded: upstream separates it by
-# Xcode target membership, not #if os() gates.
-rsync -a --exclude 'SurfaceView_UIKit.swift' "$SRC/Ghostty/" "$DEST/Ghostty/"
+# Core wrapper.
+rsync -a "$SRC/Ghostty/" "$DEST/Ghostty/"
 
-# App-target files the wrapper references (all verified against v1.3.1):
-cp "$SRC/Helpers/CrossKit.swift"                       "$DEST/Support/"  # OSView/OSColor typealiases
+# App-target files the wrapper references (all verified against v1.4.0):
 cp "$SRC/Helpers/KeyboardLayout.swift"                 "$DEST/Support/"  # keyDown layout fallback
 cp "$SRC/Helpers/Fullscreen.swift"                     "$DEST/Support/"  # FullscreenMode enum
 cp "$SRC/Helpers/Extensions/UserDefaults+Extension.swift" "$DEST/Support/"
 cp "$SRC/Helpers/Extensions/NSPasteboard+Extension.swift" "$DEST/Support/"
+cp "$SRC/Helpers/Extensions/OSPasteboard+Extension.swift" "$DEST/Support/"  # find pasteboard shared by the search bar
 cp "$SRC/Helpers/Extensions/EventModifiers+Extension.swift" "$DEST/Support/"  # SwiftUI EventModifiers(nsFlags:)
 cp "$SRC/Helpers/Extensions/Transferable+Extension.swift"  "$DEST/Support/"  # pasteboardItem() used by SurfaceDragSource
 cp "$SRC/Helpers/Cursor.swift"                             "$DEST/Support/"  # CursorStyle used by SurfaceView pointer style
@@ -34,10 +33,14 @@ cp "$SRC/Helpers/Extensions/NSAppearance+Extension.swift"  "$DEST/Support/"  # N
 # TerminalRestorable.swift is NOT vendored (pulls TerminalController etc.);
 # only its error enum is used by SurfaceView's Codable init - shimmed in Shims.swift.
 cp "$SRC/Helpers/Weak.swift"                               "$DEST/Support/"  # Weak box used by SurfaceView env keys
+cp "$SRC/Helpers/URLHoverBanner.swift"                     "$DEST/Support/"  # hovered-link banner in SurfaceView
+cp "$SRC/Helpers/UntrustedURL.swift"                       "$DEST/Support/"  # link display/safety checks (1.4 advisories)
+cp "$SRC/Helpers/UntrustedURLAlert.swift"                  "$DEST/Support/"  # confirm/block dialogs for those links
 cp "$SRC/Features/Secure Input/SecureInputOverlay.swift"   "$DEST/Support/"  # SwiftUI overlay used by SurfaceView.swift
 cp "$SRC/Helpers/Backport.swift"                           "$DEST/Support/"  # SwiftUI backport helpers (.backport.link)
 cp "$SRC/Helpers/Extensions/Optional+Extension.swift"      "$DEST/Support/"  # Optional<String>.withCString
 cp "$SRC/Helpers/Extensions/Array+Extension.swift"         "$DEST/Support/"  # Array<String>.withCStrings
+cp "$SRC/Helpers/Extensions/String+Extension.swift"        "$DEST/Support/"  # keyEventText used by keyDown
 cp "$SRC/Helpers/Extensions/NSWindow+Extension.swift"      "$DEST/Support/"  # addTabbedWindowSafely used by Fullscreen
 cp "$SRC/Helpers/Extensions/NSApplication+Extension.swift" "$DEST/Support/"  # presentation options used by Fullscreen
 cp "$SRC/Helpers/Private/CGS.swift"                        "$DEST/Support/"  # CGSSpace private API used by Fullscreen
@@ -67,7 +70,7 @@ cp "$SRC/Features/QuickTerminal/QuickTerminalSpaceBehavior.swift"  "$DEST/Suppor
 
 # Swift 6.3.3 (CLT) type-checker blows up on the tuple-destructuring ForEach
 # in the key-sequence indicator; use an indices-based ForEach instead.
-# Single occurrence, verified against the v1.3.1 source.
+# Single occurrence, verified against the v1.4.0 source.
 python3 - "$DEST/Ghostty/Surface View/SurfaceView.swift" <<'PYEOF'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
@@ -92,7 +95,7 @@ PYEOF
 # tabGroup with >1 windows; this embedder keeps sessions in its own sidebar,
 # so perform when the embedder (NSApp.delegate) has >1 sessions instead.
 # Only the gotoTab occurrence is patched (moveTab needs real windows).
-# Verified against the v1.3.1 source.
+# Verified against the v1.4.0 source.
 python3 - "$DEST/Ghostty/Ghostty.App.swift" <<'PYEOF'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
@@ -114,22 +117,22 @@ python3 - "$DEST/Ghostty/Ghostty.Config.swift" <<'PYEOF'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-anchor = "    convenience init(at path: String? = nil, finalize: Bool = true) {"
-addition = """    /// Gutter: optional extra config file loaded after the user's config
-    /// (used for embedder keybind overrides). Set before creating Ghostty.App.
-    static var embedderConfigFile: String?
+anchor = "        convenience init(at path: String? = nil, finalize: Bool = true) {"
+addition = """        /// Gutter: optional extra config file loaded after the user's config
+        /// (used for embedder keybind overrides). Set before creating Ghostty.App.
+        static var embedderConfigFile: String?
 
 """
 assert s.count(anchor) == 1
 s = s.replace(anchor, addition + anchor)
-old = "            ghostty_config_load_recursive_files(cfg)\n#endif"
+old = "            ghostty_config_load_recursive_files(cfg)\n"
 new = """            ghostty_config_load_recursive_files(cfg)
 
             // Gutter: append the embedder's extra config file.
             if let extra = Self.embedderConfigFile {
                 ghostty_config_load_file(cfg, extra)
             }
-#endif"""
+"""
 assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
 p.write_text(s.replace(old, new))
 print("patched Ghostty.Config.swift embedder hook")
@@ -156,79 +159,6 @@ new = """            // Gutter patch: upstream shows a 👻 fallback title 500ms
 assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
 p.write_text(s.replace(old, new))
 print("patched SurfaceView_AppKit.swift ghost title fallback")
-PYEOF
-
-# SurfaceView_AppKit.swift: make CachedValue thread-safe. Its 500ms expiry
-# Task clears `value` off the main thread while the accessibility methods
-# read it on main, so a String's storage can be released twice - the Swift
-# runtime aborts the process ("deallocated with non-zero retain count").
-# This is upstream's own fix (ghostty PR #13646, merged after v1.3.1); drop
-# this patch once the linked libghostty release contains it.
-python3 - "$DEST/Ghostty/Surface View/SurfaceView_AppKit.swift" <<'PYEOF'
-import sys, pathlib
-p = pathlib.Path(sys.argv[1])
-s = p.read_text()
-
-old = """class CachedValue<T> {
-    private var value: T?"""
-new = """class CachedValue<T> {
-    private let lock = NSLock()
-    private var value: T?"""
-assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
-s = s.replace(old, new)
-
-old = """    deinit {
-        expiryTask?.cancel()
-    }
-
-    func get() -> T {
-        if let value {"""
-new = """    deinit {
-        lock.lock()
-        expiryTask?.cancel()
-        lock.unlock()
-    }
-
-    func get() -> T {
-        lock.lock()
-        defer { lock.unlock() }
-
-        if let value {"""
-assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
-s = s.replace(old, new)
-
-old = """                try await Task.sleep(until: expires)
-                self?.value = nil
-                self?.expiryTask = nil
-            } catch {
-                // Task was cancelled, do nothing
-            }
-        }
-
-        return result
-    }
-}"""
-new = """                try await Task.sleep(until: expires)
-                self?.expire()
-            } catch {
-                // Task was cancelled, do nothing
-            }
-        }
-
-        return result
-    }
-
-    private func expire() {
-        lock.lock()
-        defer { lock.unlock() }
-
-        value = nil
-        expiryTask = nil
-    }
-}"""
-assert s.count(old) == 1, f"expected 1 occurrence, got {s.count(old)}"
-p.write_text(s.replace(old, new))
-print("patched SurfaceView_AppKit.swift CachedValue locking")
 PYEOF
 
 echo "vendored $(find "$DEST" -name '*.swift' | wc -l | tr -d ' ') swift files from $GHOSTTY"
