@@ -62,6 +62,20 @@ runs with only the command line tools, as Gutter itself does:
   also localizes compiler-rt's libc symbols so `memcpy` and friends bind to
   libSystem; hand-merging the zig cache, as 1.3.1 needed, would lose that.
 
+### Every build says which commit it is
+
+About Gutter reads "Version 0.1.0 (93, 0bdd6a4)" and names the libghostty
+release underneath. `make-app.sh` stamps the bundle's copy of `Info.plist`, not
+the repo's: `CFBundleVersion` becomes the commit count, and two Gutter keys
+carry the short hash (`-dirty` when the tree had uncommitted changes) and the
+tag in `deps/GHOSTTY_VERSION`. Gutter is built from source and reinstalled
+often, so the question that matters is "which commit am I running", and a
+number someone has to remember to bump answers it wrong the first time they
+forget - `0.1.0 (1)` had been every build's version until this. The commit
+count is monotonic on a linear master, which is how this repo is worked. The
+marketing version in `Info.plist` stays hand-set, for when there is a release
+to name.
+
 ### Not a product
 
 No session restore, no test suite. For a full-featured terminal, use Ghostty or

@@ -369,6 +369,13 @@ from the library it replaces (refusing if `shaders.metal` changed) and shims
 the final `xcodebuild -create-xcframework` step. `DESIGN.md`, "Updated by a
 script, not a submodule", has the reasons.
 
+### Which build is running
+
+**Gutter > About Gutter** shows the version, the build number (the commit
+count), the commit hash - with `-dirty` if the tree had uncommitted changes -
+and the libghostty release. `make-app.sh` stamps them into the bundle and prints
+the same line when it finishes.
+
 ### Sharing the binary
 
 `dist/Gutter.app` is self-contained (static libghostty, themes, shell

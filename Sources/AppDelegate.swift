@@ -431,6 +431,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, GhosttyAppDelegate, NS
         }
     }
 
+    /// The standard About panel, with the build stamp `make-app.sh` writes into
+    /// the bundle: "Version 0.1.0 (92, 0bdd6a4)", then the libghostty release
+    /// underneath. Without the stamp (a bundle not made by make-app.sh) it
+    /// falls back to the panel's own "Version 0.1.0 (1)".
+    @objc func showAbout(_ sender: Any?) {
+        let info = Bundle.main.infoDictionary ?? [:]
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+        if let build = info["CFBundleVersion"] as? String,
+           let commit = info["GutterCommit"] as? String {
+            options[.version] = "\(build), \(commit)"
+        }
+        if let ghostty = info["GutterGhosttyVersion"] as? String {
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            options[.credits] = NSAttributedString(
+                string: "libghostty \(ghostty)",
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                    .paragraphStyle: style,
+                ])
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
+
     /// Opens both config files at once. They are split for libghostty's sake,
     /// not the user's - one parses the ghostty file and diagnoses keys it
     /// doesn't know, so Gutter's launchers need their own - and making the user

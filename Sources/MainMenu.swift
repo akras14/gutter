@@ -9,7 +9,7 @@ enum MainMenu {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Gutter",
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+                        action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "").target = target
         appMenu.addItem(.separator())
         // Gutter's own config files (~/.config/gutter/{config,launchers}), not
         // ghostty's - ⌘, and ⇧⌘, are the same keys ghostty binds for its config.

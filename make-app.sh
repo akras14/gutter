@@ -11,6 +11,22 @@ APP=dist/Gutter.app
 rm -rf dist
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
+# Stamp the build so About Gutter can say exactly what's running. The build
+# number is the commit count (it only goes up on master), the commit is the
+# short hash, marked -dirty when the tree had uncommitted changes, and the
+# ghostty version is the release deps/ was built from. CFBundleShortVersionString
+# stays hand-set in Info.plist. Must happen before signing, which seals it.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    BUILD=$(git rev-list --count HEAD)
+    COMMIT=$(git rev-parse --short HEAD)
+    [ -n "$(git status --porcelain)" ] && COMMIT="$COMMIT-dirty"
+else
+    BUILD=0 COMMIT=unknown
+fi
+PLIST="$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :GutterCommit string $COMMIT" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :GutterGhosttyVersion string $(cut -d' ' -f1 deps/GHOSTTY_VERSION)" "$PLIST"
 cp bin/Gutter "$APP/Contents/MacOS/Gutter"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
@@ -18,7 +34,7 @@ cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # official app does (Resources/ghostty/...); libghostty resolves them via
 # GHOSTTY_RESOURCES_DIR. Shell integration drives tab titles.
 # Vendored deps/share is preferred; GHOSTTY (checkout) is the fallback.
-GHOSTTY=${GHOSTTY:-$HOME/projects/ak/ghostty}
+GHOSTTY=${GHOSTTY:-${GUTTER_GHOSTTY_CACHE:-$HOME/.cache/gutter-ghostty}/ghostty}
 RES_SRC=deps/share
 [ -d "$RES_SRC/ghostty" ] || RES_SRC="$GHOSTTY/zig-out/share"
 if [ -d "$RES_SRC/ghostty" ]; then
@@ -76,7 +92,7 @@ if [ -n "${NOTARY_PROFILE:-}" ]; then
     rm -f dist/Gutter.zip
 fi
 
-echo "built: $APP"
+echo "built: $APP ($(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST") build $BUILD, $COMMIT)"
 
 # Replaces /Applications/Gutter.app wholesale. A copy that is running keeps
 # going on the old binary, but loads resources lazily, so quit it (cmd-q) and
