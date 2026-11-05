@@ -331,20 +331,22 @@ signature the same across builds. Set it up once per Mac:
 1. Open Keychain Access. On recent macOS it isn't in `/Applications`:
    `open "/System/Library/CoreServices/Applications/Keychain Access.app"`.
 2. Choose **Keychain Access > Certificate Assistant > Create a Certificate...**
-3. Name it `Gutter Dev` exactly (`make-app.sh` finds it by name). Set Identity
+3. Name it `ak-dev` exactly (`make-app.sh` finds it by name). Set Identity
    Type to **Self Signed Root** and Certificate Type to **Code Signing**. Click
    Create, then Done.
-4. Check that `security find-identity -p codesigning` lists `"Gutter Dev"`.
+4. Check that `security find-identity -p codesigning` lists `"ak-dev"`.
    `CSSMERR_TP_NOT_TRUSTED` next to it is expected and harmless.
-5. Run `./make-app.sh`. It now prints `signed with "Gutter Dev"`. If macOS asks
+5. Run `./make-app.sh`. It now prints `signed with "ak-dev"`. If macOS asks
    whether `codesign` may use the key, choose **Always Allow**.
    `codesign -dvv dist/Gutter.app 2>&1 | grep Authority` should show
-   `Authority=Gutter Dev`.
+   `Authority=ak-dev`.
 6. Grant Full Disk Access one last time: in **System Settings > Privacy &
    Security > Full Disk Access**, remove Gutter, add `dist/Gutter.app`, then
    quit with ⌘Q and reopen it. Later rebuilds keep the grant.
 
-To use a different name, set `LOCAL_SIGN_NAME=...`. A Developer ID identity in
+The same certificate works for [Lightdown](https://github.com/akras14/lightdown) and
+[Holler](https://github.com/akras14/holler). To use a different name, set
+`LOCAL_SIGN_NAME=...`. A Developer ID identity in
 `SIGN_ID` takes priority over both, for builds other people run.
 
 ### Updating ghostty

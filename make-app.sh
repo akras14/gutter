@@ -52,7 +52,7 @@ fi
 # - SIGN_ID set: a "Developer ID Application: ..." identity (security
 #   find-identity -v -p codesigning) for a build others can run. Adds the
 #   hardened runtime and a trusted timestamp, both required by notarization.
-# - Otherwise, a self-signed "Gutter Dev" code signing certificate if the
+# - Otherwise, a self-signed "ak-dev" code signing certificate if the
 #   keychain has one (one-time setup in BUILDING.html). macOS keys TCC grants
 #   to the designated requirement, and a certificate's stays the same across
 #   rebuilds, so Full Disk Access, Downloads, Documents etc. survive one (#7).
@@ -63,7 +63,7 @@ fi
 #   to the build's cdhash, so every rebuild is a new app to TCC: grants show
 #   ON in System Settings and are silently refused.
 # No --deep: the bundle has exactly one Mach-O, Contents/MacOS/Gutter.
-LOCAL_SIGN_NAME=${LOCAL_SIGN_NAME:-Gutter Dev}
+LOCAL_SIGN_NAME=${LOCAL_SIGN_NAME:-ak-dev}
 LOCAL_ID=$(security find-identity -p codesigning 2>/dev/null \
     | awk -v name="\"$LOCAL_SIGN_NAME\"" 'index($0, name) { print $2; exit }' || true)
 if [ -n "${SIGN_ID:-}" ]; then

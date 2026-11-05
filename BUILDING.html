@@ -58,9 +58,9 @@ on protected paths, such as <code>~/Library/CloudStorage</code>. A self-signed c
 signature stays the same from build to build:</p>
 <ol>
   <li>Keychain Access &rarr; Keychain Access menu &rarr; Certificate Assistant &rarr; Create a Certificate...</li>
-  <li>Name <code>Gutter Dev</code>, Identity Type <em>Self Signed Root</em>, Certificate Type <em>Code Signing</em> &rarr; Create.</li>
-  <li><code>./make-app.sh</code> picks it up by name and prints <code>signed with "Gutter Dev"</code>.
-      <code>codesign -dvv dist/Gutter.app</code> shows <code>Authority=Gutter Dev</code>, not <code>Signature=adhoc</code>.</li>
+  <li>Name <code>ak-dev</code>, Identity Type <em>Self Signed Root</em>, Certificate Type <em>Code Signing</em> &rarr; Create.</li>
+  <li><code>./make-app.sh</code> picks it up by name and prints <code>signed with "ak-dev"</code>.
+      <code>codesign -dvv dist/Gutter.app</code> shows <code>Authority=ak-dev</code>, not <code>Signature=adhoc</code>.</li>
   <li>Grant Full Disk Access once more for the newly signed app: remove Gutter from the list, add
       <code>dist/Gutter.app</code> again, then quit Gutter with &#8984;Q and relaunch it. Later rebuilds keep the grant.</li>
 </ol>
