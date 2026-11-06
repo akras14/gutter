@@ -444,6 +444,74 @@ enum GitDiff {
         return (NSRange(location: head, length: leftLen), NSRange(location: head, length: rightLen))
     }
 
+    // MARK: Wrapping
+    //
+    // Wrapping is done here, by cutting lines into fixed-width chunks, not by
+    // letting the text views wrap. A soft-wrapped line takes two rows on one
+    // side and one on the other, and the panes stop lining up. Cutting them
+    // ourselves means both panes know up front how many lines every row
+    // takes, the shorter side is padded to match, and a row's place on screen
+    // is still arithmetic rather than a question for the layout manager.
+
+    /// One wrapped piece of a line.
+    struct Chunk {
+        let text: Substring
+        /// Where the piece starts in the line, in UTF-16 units: find and the
+        /// intraline highlight both work in NSRanges over the whole line.
+        let start: Int
+    }
+
+    /// `line` cut into pieces of `width` characters. A nil width is one piece,
+    /// the whole line, and so is an empty line: it still takes a line on screen.
+    static func chunks(_ line: String, width: Int?) -> [Chunk] {
+        guard let width, width > 0, line.count > width else { return [Chunk(text: line[...], start: 0)] }
+        var out: [Chunk] = []
+        var index = line.startIndex
+        var start = 0
+        while index < line.endIndex {
+            let end = line.index(index, offsetBy: width, limitedBy: line.endIndex) ?? line.endIndex
+            let text = line[index..<end]
+            out.append(Chunk(text: text, start: start))
+            start += text.utf16.count
+            index = end
+        }
+        return out
+    }
+
+    /// The first screen line of every row, plus one past the last: row `i`
+    /// covers lines `starts[i]..<starts[i + 1]`. A row takes as many lines as
+    /// its longer side needs, so the two panes stay level.
+    static func lineStarts(_ rows: [Row], width: Int?) -> [Int] {
+        var starts = [0]
+        starts.reserveCapacity(rows.count + 1)
+        for row in rows {
+            var lines = 1
+            if let width, width > 0 {
+                let longest = max(row.left?.count ?? 0, row.right?.count ?? 0)
+                lines = max(1, (longest + width - 1) / width)
+            }
+            starts.append(starts[starts.count - 1] + lines)
+        }
+        return starts
+    }
+
+    /// `range` (UTF-16, over a whole line) cut at the line's wrap points:
+    /// which of the row's screen lines each piece lands on, and the piece's
+    /// range within that line's chunk. `chunkStarts` is one entry per screen
+    /// line of the row; the padding lines of the shorter side start at the
+    /// line's length, so nothing lands on them.
+    static func split(_ range: NSRange, chunkStarts: [Int]) -> [(line: Int, range: NSRange)] {
+        guard range.length > 0 else { return [] }
+        var out: [(line: Int, range: NSRange)] = []
+        for (line, start) in chunkStarts.enumerated() {
+            let end = line + 1 < chunkStarts.count ? chunkStarts[line + 1] : Int.max
+            let low = max(range.location, start)
+            let high = min(range.location + range.length, end)
+            if high > low { out.append((line, NSRange(location: low - start, length: high - low))) }
+        }
+        return out
+    }
+
     // MARK: Process
 
     /// (stdout, exit status), or nil if git could not be launched. stderr is

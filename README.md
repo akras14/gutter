@@ -203,12 +203,18 @@ changes underneath it, the Refresh button gets a dot.
 | Keys | Action |
 |---|---|
 | ⌘] / ⌘[ | Next / previous change |
+| ⌘B | Show or hide the file list |
+| ⌥Z | Wrap long lines (also the ↩ button in the header) |
 | ⌘R | Refresh |
 | ⌘F | Find in the file on screen |
 | ⌘G or Return / ⌘⇧G or ⇧Return | Next / previous match |
 | ⌘E | Find the selected text |
 | Esc | Close the find bar |
 | ⌘W | Close the window |
+
+Lines don't wrap until you ask: the ↩ button or ⌥Z wraps them to the pane's
+width, and Gutter remembers the choice. A wrapped line pushes the other side
+down with it, so the two panes stay level.
 
 Find searches one side: the one you last clicked, or the one picked in the find
 bar, marked with an accent border. Matches are highlighted and marked on the

@@ -56,6 +56,8 @@ final class ShortcutsWindowController: NSWindowController {
         ("Changes Window", [
             ("⌘]", "Next change (in that window)"),
             ("⌘[", "Previous change (in that window)"),
+            ("⌘B", "Show or hide the file list"),
+            ("⌥Z", "Wrap long lines"),
             ("⌘F", "Find in the active pane"),
             ("⌘G / ↵", "Next match"),
             ("⇧⌘G / ⇧↵", "Previous match"),

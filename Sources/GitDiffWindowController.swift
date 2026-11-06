@@ -72,10 +72,26 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private var loadToken = 0
     /// Guards the two scroll observers against echoing each other forever.
     private var syncingScroll = false
-    /// Row count and change blocks of the file on screen, for the map strip and
-    /// the next/previous-change jumps.
-    private var rowCount = 0
+    /// Change blocks of the file on screen, in rows, for the next/previous-change
+    /// jumps. The map gets them converted to screen lines.
     private var blocks: [DiffMapView.Block] = []
+    /// The first screen line of every row, plus one past the last - see
+    /// `GitDiff.lineStarts`. One line per row until wrapping is on; with it
+    /// on, a long row takes several and every row-to-pixel sum goes via this.
+    private var rowLines: [Int] = [0]
+    private var lineCount: Int { rowLines[rowLines.count - 1] }
+
+    // Wrapping. Off by default - the panes have always scrolled sideways - and
+    // remembered, since it is a reading preference rather than a per-file one.
+    private var wrapLines = UserDefaults.standard.bool(forKey: wrapDefaultsKey)
+    private static let wrapDefaultsKey = "Gutter Git Diff Wrap Lines"
+    private let wrapButton = NSButton()
+    /// The chunk width the panes were last cut at; nil when not wrapping. A
+    /// resize that leaves this unchanged has nothing to re-render.
+    private var wrapColumns: Int?
+    /// Coalesces the stream of frame changes a live resize or the file list's
+    /// collapse animation sends into one re-wrap once the width settles.
+    private var rewrap: DispatchWorkItem?
 
     // Find. One bar per changes window, searching one pane at a time - the
     // way a diff question is usually asked: "where is this in the old file?"
@@ -86,10 +102,20 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     /// panes, whose lines also carry line numbers and padding a needle must not
     /// match - searching "12" would otherwise light every twelfth line number.
     private var shownRows: [GitDiff.Row] = []
-    /// Where each row's text starts in each pane's text storage, in UTF-16
-    /// units, so a match in a row's text maps back to a range on screen.
-    private var leftBodyStarts: [Int] = []
-    private var rightBodyStarts: [Int] = []
+    /// Where each screen line's text sits in each pane, so a match in a row's
+    /// text maps back to ranges on screen - more than one when wrapping cut
+    /// the match in two.
+    private var leftLayout = PaneLayout()
+    private var rightLayout = PaneLayout()
+    private struct PaneLayout {
+        /// Per screen line: where its text starts in the pane's text storage,
+        /// in UTF-16 units. The gutter is not a fixed width - a sixth digit
+        /// widens it - so this is recorded rather than assumed.
+        var bodyStarts: [Int] = []
+        /// Per screen line: where its chunk starts within the row's text, in
+        /// UTF-16 units. 0 for every line when not wrapping.
+        var textStarts: [Int] = []
+    }
     private struct FindMatch {
         let row: Int
         /// Within the row's text on the searched side, not the pane's.
@@ -171,6 +197,19 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let previous = navButton("chevron.up", "Previous Change (⌘[)", "[", #selector(previousChange(_:)))
         let next = navButton("chevron.down", "Next Change (⌘])", "]", #selector(nextChange(_:)))
 
+        // An icon, not a word: it sits among the fixed controls, and a toggle
+        // shows its state by staying pressed in. ⌥Z is VS Code's Toggle Word Wrap.
+        wrapButton.image = NSImage(systemSymbolName: "arrow.turn.down.left",
+                                   accessibilityDescription: "Wrap Lines")
+        wrapButton.setButtonType(.pushOnPushOff)
+        wrapButton.bezelStyle = .rounded
+        wrapButton.toolTip = "Wrap Lines (⌥Z)"
+        wrapButton.keyEquivalent = "z"
+        wrapButton.keyEquivalentModifierMask = [.option]
+        wrapButton.state = wrapLines ? .on : .off
+        wrapButton.target = self
+        wrapButton.action = #selector(wrapToggled(_:))
+
         baseToggle.segmentStyle = .automatic
         baseToggle.trackingMode = .selectOne
         baseToggle.segmentCount = 2
@@ -200,7 +239,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         // out from under the click that showed it.
         let header = NSStackView()
         header.setViews([pathLabel], in: .leading)
-        header.setViews([baseRefPopup, baseToggle, previous, next, refreshButton], in: .trailing)
+        header.setViews([baseRefPopup, baseToggle, wrapButton, previous, next, refreshButton], in: .trailing)
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
@@ -217,11 +256,22 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         // subviews proportionally instead, which left the file list filling the
         // window and squeezed the two panes into a sliver at its edge - and it
         // ignored setPosition, called before the view had a frame to divide.
-        let split = NSSplitViewController()
+        let split = DiffSplitViewController()
         let listItem = NSSplitViewItem(sidebarWithViewController: HostingViewController(makeFileList()))
         listItem.minimumThickness = 200
         listItem.maximumThickness = 520
-        listItem.canCollapse = false
+        // Collapsible for ⌘B, the same key that hides the main window's
+        // sidebar: the menu's Toggle Sidebar goes down the responder chain, so
+        // it reaches this split view controller while this window is key.
+        listItem.canCollapse = true
+        // A hidden file list keeps the keyboard otherwise: the arrow keys would
+        // go on switching files nobody can see.
+        split.onToggle = { [weak self] collapsed in
+            guard let self, collapsed, let window = self.window,
+                  let responder = window.firstResponder as? NSView,
+                  responder === self.fileTable || responder.isDescendant(of: self.fileTable) else { return }
+            window.makeFirstResponder(self.rightView)
+        }
         split.addSplitViewItem(listItem)
         let panesItem = NSSplitViewItem(viewController: HostingViewController(makePanes()))
         panesItem.minimumThickness = 420
@@ -310,6 +360,12 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private func makePanes() -> NSView {
         leftScroll = makePane(leftView)
         rightScroll = makePane(rightView)
+        // The panes are held to equal widths, so one of them is enough to hear
+        // that the wrap width may have changed.
+        leftScroll.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(paneResized(_:)),
+            name: NSView.frameDidChangeNotification, object: leftScroll.contentView)
 
         let left = stackedPane(title: leftPaneLabel, scroll: leftScroll)
         let right = stackedPane(title: rightPaneLabel, scroll: rightScroll)
@@ -389,8 +445,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         textView.drawsBackground = true
         textView.backgroundColor = .textBackgroundColor
         textView.textContainerInset = NSSize(width: 6, height: 6)
-        // No wrapping: a wrapped line would take two rows on one side and one
-        // on the other, and the two panes would stop lining up.
+        // No wrapping by the text view, even with Wrap Lines on: a soft-wrapped
+        // line would take two rows on one side and one on the other, and the
+        // two panes would stop lining up. Wrapping cuts the lines up before
+        // they get here instead - see `GitDiff.chunks`.
         textView.isHorizontallyResizable = true
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                   height: CGFloat.greatestFiniteMagnitude)
@@ -436,6 +494,59 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         other.reflectScrolledClipView(other.contentView)
         syncingScroll = false
         updateMapViewport()
+    }
+
+    // MARK: File list and wrapping
+
+    /// ⌘B with nothing in the window focused: the window itself is first
+    /// responder then, and the chain from it skips the split view controller.
+    @objc func toggleSidebar(_ sender: Any?) {
+        splitVC.toggleSidebar(sender)
+    }
+
+    @objc private func wrapToggled(_ sender: Any?) {
+        wrapLines = wrapButton.state == .on
+        UserDefaults.standard.set(wrapLines, forKey: Self.wrapDefaultsKey)
+        rerender()
+    }
+
+    @objc private func paneResized(_ note: Notification) {
+        guard wrapLines, !shownRows.isEmpty else { return }
+        rewrap?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.wrapLines, self.wrapWidth(for: self.shownRows) != self.wrapColumns else { return }
+            self.rerender()
+        }
+        rewrap = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    /// Re-cut the file on screen and put the reader back on the row they were
+    /// reading. Not a reload: the rows are already here, only their layout changed.
+    private func rerender() {
+        guard !shownRows.isEmpty else { return }
+        let top = topRow
+        let match = currentMatch
+        showRows(shownRows, keepingRow: top)
+        if let match, matches.indices.contains(match) {
+            currentMatch = match
+            paintMatch(match)
+            updateFindCount()
+        }
+    }
+
+    /// How many characters of text fit across a pane beside the gutter; nil
+    /// when not wrapping. The font is monospaced, so it is one division.
+    private func wrapWidth(for rows: [GitDiff.Row]) -> Int? {
+        guard wrapLines else { return nil }
+        let padding = (leftView.textContainer?.lineFragmentPadding ?? 5) * 2
+        let usable = leftScroll.contentView.bounds.width - leftView.textContainerInset.width * 2 - padding
+        let advance = ("0" as NSString).size(withAttributes: [.font: Self.font]).width
+        let largest = rows.reduce(0) { max($0, max($1.leftNumber ?? 0, $1.rightNumber ?? 0)) }
+        let gutter = String(format: "%5d  ", largest).count
+        // A floor, so a pane squeezed to nothing (or not laid out yet) still
+        // makes readable lines; the resize that follows cuts them again.
+        return max(20, Int(usable / advance) - gutter)
     }
 
     // MARK: Loading
@@ -751,15 +862,27 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
 
     // MARK: Scrolling and change navigation
 
-    /// Every row is exactly one line in the same font, so a row's offset is
-    /// arithmetic - no need to ask the layout manager, which would force layout
-    /// of the whole file just to find one line.
+    /// Every screen line is exactly one line in the same font, so a row's
+    /// offset is arithmetic - no need to ask the layout manager, which would
+    /// force layout of the whole file just to find one line. Wrapping keeps
+    /// this true by cutting lines itself; `rowLines` says where each row lands.
     private var lineHeight: CGFloat {
         leftView.layoutManager?.defaultLineHeight(for: Self.font) ?? 15
     }
 
     private var documentHeight: CGFloat {
-        CGFloat(rowCount) * lineHeight + leftView.textContainerInset.height * 2
+        CGFloat(lineCount) * lineHeight + leftView.textContainerInset.height * 2
+    }
+
+    /// The row a screen line belongs to: the last row starting at or before it.
+    private func row(atLine line: Int) -> Int {
+        var low = 0, high = rowLines.count - 2
+        guard high >= 0 else { return 0 }
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if rowLines[mid] <= line { low = mid } else { high = mid - 1 }
+        }
+        return low
     }
 
     private func scrollPanes(toY y: CGFloat) {
@@ -784,15 +907,22 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     private func scrollPanes(toRow row: Int) {
         // A third of the way down, not centered: the lines after a change are
         // usually the ones you want to read.
-        let y = leftView.textContainerInset.height + CGFloat(row) * lineHeight
-        scrollPanes(toY: y - leftScroll.contentView.bounds.height / 3)
+        scrollPanes(toY: y(ofRow: row) - leftScroll.contentView.bounds.height / 3)
     }
 
-    /// The row at the top of the panes right now.
-    private var topRow: Int {
+    private func y(ofRow row: Int) -> CGFloat {
+        let line = rowLines.indices.contains(row) ? rowLines[row] : 0
+        return leftView.textContainerInset.height + CGFloat(line) * lineHeight
+    }
+
+    /// The screen line at the top of the panes right now.
+    private var topLine: Int {
         let y = leftScroll.contentView.bounds.origin.y - leftView.textContainerInset.height
         return max(0, Int((y / lineHeight).rounded()))
     }
+
+    /// The row at the top of the panes right now.
+    private var topRow: Int { row(atLine: topLine) }
 
     @objc private func nextChange(_ sender: Any?) {
         guard !blocks.isEmpty else { return }
@@ -825,48 +955,66 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         ])
         leftView.textStorage?.setAttributedString(attributed)
         rightView.textStorage?.setAttributedString(NSAttributedString(string: ""))
-        rowCount = 0
+        rowLines = [0]
+        wrapColumns = nil
         blocks = []
         mapView.blocks = []
-        mapView.totalRows = 0
+        mapView.totalLines = 0
         shownRows = []
-        leftBodyStarts = []
-        rightBodyStarts = []
+        leftLayout = PaneLayout()
+        rightLayout = PaneLayout()
         runFind(jump: false)
         scrollPanesToTop()
     }
 
-    private func showRows(_ rows: [GitDiff.Row]) {
+    /// `keepingRow` re-renders in place - a wrap toggle or a resize - and puts
+    /// that row back at the top. Without it, a new file starts at the top.
+    private func showRows(_ rows: [GitDiff.Row], keepingRow: Int? = nil) {
+        let width = wrapWidth(for: rows)
+        wrapColumns = width
+        rowLines = GitDiff.lineStarts(rows, width: width)
         // Backgrounds only cover the glyphs they sit under, so every line is
         // padded to a common width - otherwise a changed row's highlight would
         // stop at the end of its text and the two panes would look ragged.
+        // Wrapped, that width is the wrap width, so the padding never spills.
         let widest = rows.reduce(0) { max($0, max($1.left?.count ?? 0, $1.right?.count ?? 0)) }
-        let padTo = min(max(widest, 80), 500)
+        let padTo = width ?? min(max(widest, 80), 500)
 
         leftView.textStorage?.setAttributedString(
-            render(rows, side: .left, padTo: padTo, bodyStarts: &leftBodyStarts))
+            render(rows, side: .left, width: width, padTo: padTo, layout: &leftLayout))
         rightView.textStorage?.setAttributedString(
-            render(rows, side: .right, padTo: padTo, bodyStarts: &rightBodyStarts))
+            render(rows, side: .right, width: width, padTo: padTo, layout: &rightLayout))
 
-        rowCount = rows.count
         blocks = Self.blocks(in: rows)
-        mapView.totalRows = rows.count
-        mapView.blocks = blocks
+        mapView.totalLines = lineCount
+        mapView.blocks = blocks.map {
+            DiffMapView.Block(start: rowLines[$0.start], end: rowLines[$0.end + 1] - 1, color: $0.color)
+        }
         shownRows = rows
         // A query stays live across files and refreshes: the question is
         // usually "where else is this used", and the next file is where else.
         runFind(jump: false)
-        scrollPanesToTop()
+        if let keepingRow, rows.indices.contains(keepingRow) {
+            // The clip view won't scroll past the text view's frame, and that
+            // frame follows layout, which has only been invalidated so far.
+            for view in [leftView, rightView] {
+                if let container = view.textContainer { view.layoutManager?.ensureLayout(for: container) }
+            }
+            scrollPanes(toY: y(ofRow: keepingRow))
+        } else {
+            scrollPanesToTop()
+        }
     }
 
     private enum Side { case left, right }
 
-    private func render(_ rows: [GitDiff.Row], side: Side, padTo: Int,
-                        bodyStarts: inout [Int]) -> NSAttributedString {
+    private func render(_ rows: [GitDiff.Row], side: Side, width: Int?, padTo: Int,
+                        layout: inout PaneLayout) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        bodyStarts = []
-        bodyStarts.reserveCapacity(rows.count)
-        for row in rows {
+        layout = PaneLayout()
+        layout.bodyStarts.reserveCapacity(lineCount)
+        layout.textStarts.reserveCapacity(lineCount)
+        for (index, row) in rows.enumerated() {
             let text = side == .left ? row.left : row.right
             let number = side == .left ? row.leftNumber : row.rightNumber
 
@@ -874,16 +1022,32 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             // deletion on the other side: it holds the row open so both panes
             // stay on the same line.
             let gutter = number.map { String(format: "%5d  ", $0) } ?? "       "
+            // A wrapped line's continuations go under its text, not its number:
+            // a number on every piece would read as that many lines.
+            let continuation = String(repeating: " ", count: gutter.count)
             let body = text ?? ""
-            let padded = body + String(repeating: " ", count: max(0, padTo - body.count))
-            let line = NSMutableAttributedString(string: gutter + padded + "\n", attributes: [
-                .font: Self.font,
-                .foregroundColor: NSColor.labelColor,
-            ])
+            let chunks = GitDiff.chunks(body, width: width)
+            let bodyLength = body.utf16.count
+            let firstLine = layout.bodyStarts.count
+            let line = NSMutableAttributedString()
+            // The row's share of screen lines is set by its longer side; this
+            // side's pieces fill the first ones and blank padding the rest.
+            for piece in 0..<(rowLines[index + 1] - rowLines[index]) {
+                let prefix = piece == 0 ? gutter : continuation
+                let chunk = piece < chunks.count ? chunks[piece] : nil
+                let chunkText = chunk.map { String($0.text) } ?? ""
+                let padded = chunkText + String(repeating: " ", count: max(0, padTo - chunkText.count))
+                let start = line.length
+                line.append(NSAttributedString(string: prefix + padded + "\n", attributes: [
+                    .font: Self.font,
+                    .foregroundColor: NSColor.labelColor,
+                ]))
+                line.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor,
+                                  range: NSRange(location: start, length: prefix.utf16.count))
+                layout.bodyStarts.append(out.length + start + prefix.utf16.count)
+                layout.textStarts.append(chunk?.start ?? bodyLength)
+            }
             let lineRange = NSRange(location: 0, length: line.length)
-            let gutterWidth = gutter.utf16.count
-            line.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor,
-                              range: NSRange(location: 0, length: gutterWidth))
 
             switch (row.kind, side) {
             case (.equal, _):
@@ -895,9 +1059,11 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
                 if let left = row.left, let right = row.right,
                    let (leftRange, rightRange) = GitDiff.intralineRanges(left, right) {
                     let range = side == .left ? leftRange : rightRange
-                    if range.length > 0 {
-                        let shifted = NSRange(location: range.location + gutterWidth,
-                                              length: range.length)
+                    let starts = Array(layout.textStarts[firstLine...])
+                    for piece in GitDiff.split(range, chunkStarts: starts) {
+                        // Relative to this row's text, which `out` doesn't hold yet.
+                        let at = layout.bodyStarts[firstLine + piece.line] - out.length
+                        let shifted = NSRange(location: at + piece.range.location, length: piece.range.length)
                         line.addAttribute(.backgroundColor, value: Self.intralineBG, range: shifted)
                     }
                 }
@@ -908,9 +1074,6 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
             case (.removed, .right), (.added, .left):
                 line.addAttribute(.backgroundColor, value: Self.fillerBG, range: lineRange)
             }
-            // The gutter is not a fixed width - a sixth digit widens it - so
-            // the text's start is recorded rather than assumed.
-            bodyStarts.append(out.length + gutterWidth)
             out.append(line)
         }
         return out
@@ -1162,7 +1325,7 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
                 .backgroundColor, forCharacterRange: NSRange(location: 0, length: length))
         }
         for index in matches.indices { paintMatch(index) }
-        mapView.matchRows = matches.map(\.row)
+        mapView.matchLines = matches.map { rowLines[$0.row] }
         if jump, !matches.isEmpty { stepMatch(forward: true) } else { updateFindCount() }
     }
 
@@ -1182,10 +1345,15 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         return found
     }
 
-    /// The match's range in the searched pane's text storage.
-    private func paneRange(_ match: FindMatch) -> NSRange {
-        let start = (findSide == .left ? leftBodyStarts : rightBodyStarts)[match.row]
-        return NSRange(location: start + match.range.location, length: match.range.length)
+    /// The match's ranges in the searched pane's text storage: one, or more
+    /// when wrapping cut the match across lines. Never empty for a real match.
+    private func paneRanges(_ match: FindMatch) -> [NSRange] {
+        let layout = findSide == .left ? leftLayout : rightLayout
+        let lines = rowLines[match.row]..<rowLines[match.row + 1]
+        return GitDiff.split(match.range, chunkStarts: Array(layout.textStarts[lines])).map {
+            NSRange(location: layout.bodyStarts[lines.lowerBound + $0.line] + $0.range.location,
+                    length: $0.range.length)
+        }
     }
 
     /// Temporary attributes, not text-storage ones: they draw over the diff's
@@ -1193,8 +1361,10 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
     /// them again rather than re-rendering the file.
     private func paintMatch(_ index: Int) {
         let color = index == currentMatch ? Self.currentMatchBG : Self.matchBG
-        findView.layoutManager?.addTemporaryAttribute(.backgroundColor, value: color,
-                                                      forCharacterRange: paneRange(matches[index]))
+        for range in paneRanges(matches[index]) {
+            findView.layoutManager?.addTemporaryAttribute(.backgroundColor, value: color,
+                                                          forCharacterRange: range)
+        }
     }
 
     private func stepMatch(forward: Bool) {
@@ -1219,14 +1389,16 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let match = matches[target]
         // Only scroll when the row is off screen: typing a query that matches
         // the line being read shouldn't move it.
-        let visibleRows = Int(leftScroll.contentView.bounds.height / lineHeight)
-        if match.row < topRow || match.row >= topRow + max(1, visibleRows - 1) {
+        // In screen lines, not rows: wrapped, one row can be most of a screen.
+        let visibleLines = Int(leftScroll.contentView.bounds.height / lineHeight)
+        let line = rowLines[match.row]
+        if line < topLine || line >= topLine + max(1, visibleLines - 1) {
             scrollPanes(toRow: match.row)
         }
-        let range = paneRange(match)
-        // The panes don't wrap, so a match far along a long line can be off to
-        // the right; this scrolls sideways, and the scroll sync carries the
-        // other pane along.
+        guard let range = paneRanges(match).first else { return }
+        // Unwrapped, a match far along a long line can be off to the right;
+        // this scrolls sideways, and the scroll sync carries the other pane
+        // along.
         findView.scrollRangeToVisible(range)
         findView.showFindIndicator(for: range)
     }
@@ -1261,6 +1433,20 @@ final class GitDiffWindowController: NSWindowController, NSTableViewDataSource, 
         let row = fileTable.selectedRow
         guard row >= 0 else { return }
         showFile(at: row)
+    }
+}
+
+/// Says when the file list was hidden or shown, so the window can take the
+/// keyboard back from a list that just went out of sight.
+private final class DiffSplitViewController: NSSplitViewController {
+    var onToggle: ((_ collapsed: Bool) -> Void)?
+
+    override func toggleSidebar(_ sender: Any?) {
+        // Read before, not after: the collapse is animated, and what the item
+        // reports mid-animation is not worth depending on.
+        let wasCollapsed = splitViewItems.first?.isCollapsed ?? false
+        super.toggleSidebar(sender)
+        onToggle?(!wasCollapsed)
     }
 }
 
@@ -1302,10 +1488,12 @@ final class DiffMapView: NSView {
     static let width: CGFloat = 14
 
     var blocks: [Block] = [] { didSet { needsDisplay = true } }
-    var totalRows = 0 { didSet { needsDisplay = true } }
-    /// Rows holding a find match. This is the "where else in the file" answer
+    /// Screen lines, not rows: with wrapping on, a long row takes several, and
+    /// the map has to agree with the panes about where things are.
+    var totalLines = 0 { didSet { needsDisplay = true } }
+    /// Lines holding a find match. This is the "where else in the file" answer
     /// at a glance, the same way the blocks are for changes.
-    var matchRows: [Int] = [] { didSet { needsDisplay = true } }
+    var matchLines: [Int] = [] { didSet { needsDisplay = true } }
     /// The visible span of the file, as a 0...1 fraction. Nil hides the outline.
     var viewport: ClosedRange<CGFloat>? { didSet { needsDisplay = true } }
     /// Where the user clicked, as a 0...1 fraction of the file.
@@ -1322,10 +1510,10 @@ final class DiffMapView: NSView {
         NSRect(x: 0, y: 0, width: 1, height: bounds.height).fill()
         NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill()
 
-        guard totalRows > 0 else { return }
+        guard totalLines > 0 else { return }
         let inset: CGFloat = 2
         let usable = bounds.height
-        let scale = usable / CGFloat(totalRows)
+        let scale = usable / CGFloat(totalLines)
 
         for block in blocks {
             let top = CGFloat(block.start) * scale
@@ -1339,8 +1527,8 @@ final class DiffMapView: NSView {
         // Narrower than a change mark, so a match inside a change leaves the
         // change's color showing at the edges.
         NSColor.systemYellow.setFill()
-        for row in matchRows {
-            NSRect(x: inset * 2, y: CGFloat(row) * scale, width: bounds.width - inset * 4, height: 2).fill()
+        for line in matchLines {
+            NSRect(x: inset * 2, y: CGFloat(line) * scale, width: bounds.width - inset * 4, height: 2).fill()
         }
 
         if let viewport {
@@ -1361,7 +1549,7 @@ final class DiffMapView: NSView {
     override func mouseDragged(with event: NSEvent) { jump(to: event) }
 
     private func jump(to event: NSEvent) {
-        guard totalRows > 0, bounds.height > 0 else { return }
+        guard totalLines > 0, bounds.height > 0 else { return }
         let y = convert(event.locationInWindow, from: nil).y
         onJump?(min(max(0, y / bounds.height), 1))
     }

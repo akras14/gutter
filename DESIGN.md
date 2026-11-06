@@ -521,6 +521,40 @@ long file.
 Don't propose collapsing unchanged regions to make changes easier to find. That
 problem is already solved a different way.
 
+### Wrapping cuts lines, it doesn't soft-wrap
+
+Lines don't wrap by default; the ↩ toggle in the header (⌥Z, VS Code's Toggle
+Word Wrap) turns it on, and the choice is remembered globally. It is a reading
+preference, not something that belongs to a file.
+
+The text views never wrap. A soft-wrapped line takes three lines on one side
+and one on the other, and the panes stop lining up, which is the whole point of
+the side-by-side layout. So `GitDiff.chunks` cuts each line into pieces of the
+pane's width before rendering. A row takes as many screen lines as its longer
+side needs, and the shorter side is padded with blank lines to match. Every
+screen line is still exactly one line tall, so scroll sync, the change jumps and
+the map strip stay arithmetic. They convert rows to screen lines through
+`rowLines` instead of asking the layout manager.
+
+The costs, taken knowingly:
+
+- **Pieces are cut by character count.** The font is monospaced, but a tab or a
+  wide character (CJK, emoji) is wider than one column, so a line full of them
+  runs a little past the edge.
+- **Copying a wrapped line copies the breaks.** Copy already brings the line
+  numbers along, so the panes were never a clean copy source.
+- **Resizing re-cuts the file** once the width settles, about 0.1s after the
+  last frame change, and puts the row you were reading back at the top. During
+  a live resize the old cut stays on screen.
+
+### ⌘B hides the file list
+
+The same key, and the same Toggle Sidebar menu item, as the main window's
+sidebar. It reaches the changes window's split view through the responder chain
+whenever that window is key. Hiding the list while it has focus moves focus to
+the working-tree pane. Otherwise the arrow keys would keep switching files in a
+list nobody can see.
+
 ### Find searches one pane, and says which
 
 The changes window has its own find bar (⌘F while it is key), because whole
